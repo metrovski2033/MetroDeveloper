@@ -54,6 +54,7 @@ public:
 
 	static bool isReduxEGS;
 	static bool isExodusPatched;
+	static bool isExodusEE;
 
 	static DWORD64 GetAddrFromRelativeInstr(DWORD64 instr_addr, int instr_len, int rel_offset);
 

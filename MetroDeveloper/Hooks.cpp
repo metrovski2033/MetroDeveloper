@@ -123,7 +123,7 @@ tyda:
 				"x????xxxxx????x????xxxxxxxxxxxxxx");
 
 			if (vfs_exists == NULL) {
-				// т.к. в версии без патчей функция vfs::exists заинлайнена везде, то мы сделаем эту функцию сами
+				// пїЅ.пїЅ. пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ vfs::exists пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ, пїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ
 
 				// E8 ? ? ? ? A3 ? ? ? ? 50
 				DWORD call_vfs_registry = FindPatternInEXE("\xE8\x00\x00\x00\x00\xA3\x00\x00\x00\x00\x50", "x????x????x");
@@ -205,13 +205,21 @@ tyda:
 			// 44 89 4C 24 ? 44 89 44 24 ? 89 54 24 10 48 89 4C 24 ? 55 53 57 - Exodus NEW
 			clevel_r_on_key_press_Address = FindPatternInEXE(
 				"\x44\x89\x4C\x24\x00\x44\x89\x44\x24\x00\x89\x54\x24\x10\x48\x89\x4C\x24\x00\x55\x53\x57", "xxxx?xxxx?xxxxxxxx?xxx");
+
+			if (clevel_r_on_key_press_Address == NULL) {
+				// 44 89 4C 24 ? 44 89 44 24 ? 89 54 24 10 48 89 4C 24 ? 55 53 56 41 54 41 55 41 56 41 57 48 8D 6C 24 ? 48 81 EC B0 00 00 00 - Exodus EE
+				clevel_r_on_key_press_Address = FindPatternInEXE(
+					"\x44\x89\x4C\x24\x00\x44\x89\x44\x24\x00\x89\x54\x24\x10\x48\x89\x4C\x24\x00\x55\x53\x56\x41\x54\x41\x55\x41\x56\x41\x57\x48\x8D\x6C\x24\x00\x48\x81\xEC\xB0\x00\x00\x00",
+					"xxxx?xxxx?xxxxxxxx?xxxxxxxxxxxxxxx?xxxxxxx");
+			}
 		} else {
 			// 44 89 4c 24 ? 48 89 4c 24 ? 55 53 - Exodus OLD
 			clevel_r_on_key_press_Address = FindPatternInEXE("\x44\x89\x4c\x24\x00\x48\x89\x4c\x24\x00\x55\x53", "xxxx?xxxx?xx");
 		}
 	}
 
-	SetHook("clevel_r_on_key_press", (void*)clevel_r_on_key_press_Address, &clevel_r_on_key_press_Hook, &clevel_r_on_key_press_Orig);
+	if (clevel_r_on_key_press_Address != NULL)
+		SetHook("clevel_r_on_key_press", (void*)clevel_r_on_key_press_Address, &clevel_r_on_key_press_Hook, &clevel_r_on_key_press_Orig);
 
 	///////////////////////////////////////////////////////////////
 
@@ -235,9 +243,17 @@ tyda:
 			cmd_register_commands_Address = FindPatternInEXE(
 				"\x40\x53\x48\x83\xEC\x20\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x8B\x0D\x00\x00\x00\x00\xBA\x00\x00\x00\x00\x48\x8B\x1C\xC8\x48\x03\xDA\x8B\x03\x39\x05",
 				"xxxxxxxxxxx????xx????x????xxxxxxxxxxx");
+
+			if (cmd_register_commands_Address == NULL && Utils::isExodus()) {
+				// 48 89 5C 24 ? 48 89 74 24 ? 55 57 41 56 48 8B EC 48 83 EC 20 65 48 8B 04 25 58 00 00 00 48 8D 35 ? ? ? ? BB 10 00 00 00 4C 8D 35 ? ? ? ? 48 8B 08 8B 04 0B 39 05 - Exodus EE
+				cmd_register_commands_Address = FindPatternInEXE(
+					"\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x55\x57\x41\x56\x48\x8B\xEC\x48\x83\xEC\x20\x65\x48\x8B\x04\x25\x58\x00\x00\x00\x48\x8D\x35\x00\x00\x00\x00\xBB\x10\x00\x00\x00\x4C\x8D\x35\x00\x00\x00\x00\x48\x8B\x08\x8B\x04\x0B\x39\x05",
+					"xxxx?xxxx?xxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxx????xxxxxxxx");
+			}
 		}
 
-		SetHook("cmd_register_commands", (void*)cmd_register_commands_Address, &cmd_register_commands_Hook, &cmd_register_commands_Orig);
+		if (cmd_register_commands_Address != NULL)
+			SetHook("cmd_register_commands", (void*)cmd_register_commands_Address, &cmd_register_commands_Hook, &cmd_register_commands_Orig);
 	}
 
 	///////////////////////////////////////////////////////////////
@@ -328,7 +344,15 @@ tyda:
 					"\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x56\x57\x41\x54\x41\x55\x41\x57\x48\x83\xEC\x40\x45\x33\xED\x45\x8B\xE1\x49\x8B\xE8\x48\x8B\xFA\x48\x8B\xF1\x44\x39\x6A\x0C\x0F\x84\x00\x00\x00\x00\x48\x8B\x84\x24\x00\x00\x00\x00\x4D\x8B\xC8\x4C\x8B\x02\x41\xBF",
 					"xxxx?xxxx?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxx????xxxxxxxx");
 
-				SetHook("vfs_ropen_package", (void*)vfs_ropen_package_Address, &vfs_ropen_package_ExodusPatched_Hook, &vfs_ropen_package_Orig);
+				if (vfs_ropen_package_Address == NULL) {
+					// 48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 54 41 55 41 57 48 83 EC 40 45 33 ED 45 8B F9 49 8B E8 48 8B DA 48 8B F1 44 39 6A 0C 0F 84 - Exodus EE
+					vfs_ropen_package_Address = FindPatternInEXE(
+						"\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x56\x57\x41\x54\x41\x55\x41\x57\x48\x83\xEC\x40\x45\x33\xED\x45\x8B\xF9\x49\x8B\xE8\x48\x8B\xDA\x48\x8B\xF1\x44\x39\x6A\x0C\x0F\x84",
+						"xxxx?xxxx?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????");
+				}
+
+				if (vfs_ropen_package_Address != NULL)
+					SetHook("vfs_ropen_package", (void*)vfs_ropen_package_Address, &vfs_ropen_package_ExodusPatched_Hook, &vfs_ropen_package_Orig);
 			} else {
 				// 48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 54 41 55 41 56 48 83 EC 30 45 31 ED - Exodus OLD
 				vfs_ropen_package_Address = FindPatternInEXE(
@@ -339,11 +363,13 @@ tyda:
 
 			// E8 ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 8B 7E 34 - Exodus ALL
 			DWORD64 call_vfs_rbuffered_package = FindPatternInEXE("\xE8\x00\x00\x00\x00\x48\x8B\x05\x00\x00\x00\x00\x8B\x7E\x34", "x????xxx????xxx");
-			vfs_rbuffered_package_Address = Utils::GetAddrFromRelativeInstr(call_vfs_rbuffered_package, 5, 1);
+			if (call_vfs_rbuffered_package != NULL)
+				vfs_rbuffered_package_Address = Utils::GetAddrFromRelativeInstr(call_vfs_rbuffered_package, 5, 1);
 
 			// E8 ? ? ? ? 41 83 CF FF 85 C0 - Exodus ALL
 			DWORD64 call_vfs_exists = FindPatternInEXE("\xE8\x00\x00\x00\x00\x41\x83\xCF\xFF\x85\xC0", "x????xxxxxx");
-			vfs_exists = (_vfs_exists)Utils::GetAddrFromRelativeInstr(call_vfs_exists, 5, 1);
+			if (call_vfs_exists != NULL)
+				vfs_exists = (_vfs_exists)Utils::GetAddrFromRelativeInstr(call_vfs_exists, 5, 1);
 		}
 
 		if (g_cant_find_file_msg && (Utils::isRedux() || Utils::isArktika())) {
@@ -364,11 +390,12 @@ tyda:
 			SetHook("vfs_ropen_package", (void*)vfs_ropen_package_Address, &vfs_ropen_package_Hook, &vfs_ropen_package_Orig);
 		}
 
-		SetHook("vfs_rbuffered_package", (void*)vfs_rbuffered_package_Address, Utils::isExodus() ? (void*)&vfs_rbuffered_package_HookExodus : (void*)&vfs_rbuffered_package_Hook, &vfs_rbuffered_package_Orig);
+		if (vfs_rbuffered_package_Address != NULL)
+			SetHook("vfs_rbuffered_package", (void*)vfs_rbuffered_package_Address, Utils::isExodus() ? (void*)&vfs_rbuffered_package_HookExodus : (void*)&vfs_rbuffered_package_Hook, &vfs_rbuffered_package_Orig);
 
 		if (g_unlock_content_folder) {
 			if (Utils::isRedux() && !isReduxEGS) {
-				// в EGS версии эта функция заинлайнена
+				// пїЅ EGS пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 				SetHook("vfs_package_registry_level_downloaded", (void*)vfs_package_registry_level_downloaded_Address, &vfs_package_registry_level_downloaded_Hook,
 					&vfs_package_registry_level_downloaded_Orig);
 			}
@@ -427,13 +454,23 @@ tyda:
 	///////////////////////////////////////////////////////////////
 
 	if ((g_fly || g_restore_deleted_commands) && Utils::isExodus() && Utils::isExodusPatched) {
-		// Восстановление cflycam::r_on_key_press выпиленного в патчах исхода
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ cflycam::r_on_key_press пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
 		// C2 00 00 CC CC CC CC CC CC CC CC CC CC CC CC CC 48 89 5C 24 ? 57 48 83 EC 20 48 8B 41 10 - Exodus
 		DWORD64 cflycam_r_on_key_press_Address = FindPatternInEXE(
 			"\xC2\x00\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x48\x89\x5C\x24\x00\x57\x48\x83\xEC\x20\x48\x8B\x41\x10",
 			"xxxxxxxxxxxxxxxxxxxx?xxxxxxxxx");
 
-		SetHook("cflycam_r_on_key_press", (void*)cflycam_r_on_key_press_Address, &Fly::exodus_cflycam_r_on_key_press, NULL);
+		if (cflycam_r_on_key_press_Address == NULL) {
+			// 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 10 48 8B F9 48 83 C1 10 41 8B D8 - Exodus EE
+			cflycam_r_on_key_press_Address = FindPatternInEXE(
+				"\x48\x89\x5C\x24\x08\x57\x48\x83\xEC\x20\x48\x8B\x41\x10\x48\x8B\xF9\x48\x83\xC1\x10\x41\x8B\xD8",
+				"xxxxxxxxxxxxxxxxxxxxxxxx");
+		}
+
+		if (cflycam_r_on_key_press_Address != NULL) {
+			extern void* cflycam_r_on_key_press_Orig;
+			SetHook("cflycam_r_on_key_press", (void*)cflycam_r_on_key_press_Address, &Fly::exodus_cflycam_r_on_key_press, &cflycam_r_on_key_press_Orig);
+		}
 	}
 
 	///////////////////////////////////////////////////////////////
@@ -553,7 +590,7 @@ void Hooks::cmd_register_commands_Hook()
 
 void Hooks::vfs_ropen_cantfind(const char* fn)
 {
-	// файлы с расширением .model не выводим, т.к. движок их умеет выводить сам
+	// пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ .model пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅ.пїЅ. пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ
 	const char* ext = strrchr(fn, '.');
 	bool b = true;
 
@@ -561,7 +598,7 @@ void Hooks::vfs_ropen_cantfind(const char* fn)
 		b = !strstr(".model", ext);
 	}
 
-	if (b) {
+	if (b && Utils::rlog != nullptr) {
 		Utils::rlog(cantFindFile, fn);
 	}
 }
@@ -607,7 +644,7 @@ void* __fastcall Hooks::vfs_ropen_package_Hook(void* result, void* package, cons
 
 void __fastcall Hooks::vfs_rbuffered_package_Hook(void* package, const char* fn, void* cb, const int force_raw)
 {
-	if (g_cant_find_file_msg && (!vfs_exists(fn) && !Utils::FileExists(fn))) {
+	if (g_cant_find_file_msg && Utils::rlog != nullptr && (!vfs_exists(fn) && !Utils::FileExists(fn))) {
 		Utils::rlog(cantFindFile, fn);
 	}
 
@@ -617,7 +654,7 @@ void __fastcall Hooks::vfs_rbuffered_package_Hook(void* package, const char* fn,
 
 void __fastcall Hooks::vfs_rbuffered_package_HookExodus(const char* fn, void* cb)
 {
-	if (g_cant_find_file_msg && (!vfs_exists(fn) && !Utils::FileExists(fn))) {
+	if (g_cant_find_file_msg && Utils::rlog != nullptr && (!vfs_exists(fn) && !Utils::FileExists(fn))) {
 		Utils::rlog(cantFindFile, fn);
 	}
 
@@ -644,20 +681,20 @@ void __fastcall Hooks::asset_manager_load_all_internal_Hook(void* _this, const i
 __declspec(naked) void Hooks::vfs_ropen_HookASM()
 {
 	__asm {
-		// === БЕРЁМ АРГУМЕНТЫ ===
+		// === пїЅпїЅРЁпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ===
 		mov eax, [esp + 4]   // fn
 		mov edx, esi         // result
 
-		// === СОХРАНЯЕМ РЕГИСТРЫ ===
+		// === пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ===
 		pushad
 
-		// передаём аргументы в C функцию
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ C пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 		push eax             // fn
 		push edx             // result
 		call Hooks::vfs_ropen_HookC
 		add esp, 8
 
-		// кладём return value в сохранённый eax
+		// пїЅпїЅпїЅпїЅпїЅ return value пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ eax
 		mov[esp + 28], eax
 
 		popad
@@ -674,7 +711,7 @@ void* __cdecl Hooks::vfs_ropen_HookC(void* result, const char* fn)
 	}
 
 	if (ret == nullptr) {
-		// вызов оригинальной функции в 2033 и в LL __usercall
+		// пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ 2033 пїЅ пїЅ LL __usercall
 		__asm {
 			mov esi, result
 			push fn
@@ -701,7 +738,7 @@ void __cdecl Hooks::vfs_rbuffered_Hook(const char* fn, void* a1, void* method)
 	vfs_rbuffered_Orig(fn, a1, method);
 }
 
-// т.к. в версии без патчей функция vfs::exists заинлайнена везде, то мы сделаем эту функцию сами
+// пїЅ.пїЅ. пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ vfs::exists пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ, пїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ
 bool __cdecl Hooks::vfs_exists_custom_ll(const char* fn)
 {
 	if (vfs && vfs_registry && vfs_package_registry_find) {
@@ -751,7 +788,12 @@ void __fastcall Hooks::slog_Hook(const char* s)
 #endif
 
 	LogFile::slog(s);
-	slog_Orig(s);
+
+	// EE's slog uses a TLS-based log context that is not initialized for threads
+	// that bypass EE's thread setup. Skip slog_Orig for EE to avoid ACCESS_VIOLATION.
+	if (!Utils::isExodusEE) {
+		slog_Orig(s);
+	}
 }
 
 ///////////////////////////////////////////////////////////////

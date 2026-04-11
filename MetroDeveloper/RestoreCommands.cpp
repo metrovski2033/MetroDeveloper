@@ -118,8 +118,10 @@ RestoreCommands::RestoreCommands()
 				call_unknown_exodus = FindPatternInEXE("\xE8\x00\x00\x00\x00\x4C\x89\x65\x58", "x????xxxx");
 			}
 
-			igame_level_signal = Utils::GetAddrFromRelativeInstr(call_igame_level_signal, 5, 1);
-			unknown_exodus = (_unknown_exodus) Utils::GetAddrFromRelativeInstr(call_unknown_exodus, 5, 1);
+			if (call_igame_level_signal != NULL)
+				igame_level_signal = Utils::GetAddrFromRelativeInstr(call_igame_level_signal, 5, 1);
+			if (call_unknown_exodus != NULL)
+				unknown_exodus = (_unknown_exodus) Utils::GetAddrFromRelativeInstr(call_unknown_exodus, 5, 1);
 		}
 #endif
 	}
@@ -222,14 +224,25 @@ void RestoreCommands::cmd_register_commands() {
 	DWORD64 str_g_toggle_aim = FindPatternInEXE("g_toggle_aim\0", "xxxxxxxxxxxxx");
 	DWORD64 str_save_player = FindPatternInEXE("save_player\0", "xxxxxxxxxxxx");
 
+	if (str_g_toggle_aim == NULL || str_save_player == NULL) return;
+
 	// 2. find reference to that string
 	DWORD64 xref = FindPatternInEXE((char*)&str_g_toggle_aim, "xxxxxxxx");
 	DWORD64 xref1 = FindPatternInEXE((char*)&str_save_player, "xxxxxxxx");
+
+	if (xref == NULL || xref1 == NULL) return;
 
 	if (Utils::GetGame() == GAME::REDUX) {
 		// 3. find pointer to existing command object based on xref
 		cmd_mask_struct_ll* pCmd = (cmd_mask_struct_ll*)(xref - offsetof(cmd_mask_struct_ll, _name));
 		uconsole_command_ll* pCmd1 = (uconsole_command_ll*)(xref1 - offsetof(uconsole_command_ll, _name));
+
+		// Validate vtable is within the EXE image range
+		{
+			MODULEINFO mod = GetModuleData(NULL);
+			if ((DWORD64)pCmd->__vftable < (DWORD64)mod.lpBaseOfDll ||
+				(DWORD64)pCmd->__vftable >= (DWORD64)mod.lpBaseOfDll + mod.SizeOfImage) return;
+		}
 
 		ps_actor_flags = pCmd->value;
 
@@ -264,6 +277,13 @@ void RestoreCommands::cmd_register_commands() {
 		// 3. find pointer to existing command object based on xref
 		cmd_mask_struct_a1* pCmd = (cmd_mask_struct_a1*)(xref - offsetof(cmd_mask_struct_a1, _name));
 		uconsole_command_a1* pCmd1 = (uconsole_command_a1*)(xref1 - offsetof(uconsole_command_a1, _name));
+
+		// Validate vtable is within the EXE image range
+		{
+			MODULEINFO mod = GetModuleData(NULL);
+			if ((DWORD64)pCmd->__vftable < (DWORD64)mod.lpBaseOfDll ||
+				(DWORD64)pCmd->__vftable >= (DWORD64)mod.lpBaseOfDll + mod.SizeOfImage) return;
+		}
 
 		if (Utils::isExodus()) {
 			DWORD64 str_refly_default_cycles = FindPatternInEXE("refly_default_cycles\0", "xxxxxxxxxxxxxxxxxxxxx");
@@ -330,7 +350,7 @@ void RestoreCommands::cmd_register_commands() {
 		cu.command_add(&r_hud_weapon_old);
 
 		// LL restore fly cmd
-		// Вычисляем указатель ucmd_save_player save_player что-бы вытащить из него __vftable
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ucmd_save_player save_player пїЅпїЅпїЅ-пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅ __vftable
 		// C7 05 ? ? ? ? ? ? ? ? E8 ? ? ? ? 83 C4 04 E8 ? ? ? ? 8B 10 8B C8 8B 42 08 68 ? ? ? ? FF D0 84 1D ? ? ? ? 75 39 8A 0D ? ? ? ? 09 1D ? ? ? ? 80 E1 E7 80 C9 07 68 ? ? ? ? C7 05 ? ? ? ? ? ? ? ? 88 0D ? ? ? ? C7 05 ? ? ? ? ? ? ? ? E8 ? ? ? ? 83 C4 04 E8 ? ? ? ? 8B 10 8B C8 8B 42 08 68 ? ? ? ? FF D0 5B C3
 		DWORD mov = FindPatternInEXE(
 			"\xC7\x05\x00\x00\x00\x00\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x83\xC4\x04\xE8\x00\x00\x00\x00\x8B\x10\x8B\xC8\x8B\x42\x08\x68\x00\x00\x00\x00\xFF\xD0\x84\x1D\x00\x00\x00\x00\x75\x39\x8A\x0D\x00\x00\x00\x00\x09\x1D\x00\x00\x00\x00\x80\xE1\xE7\x80\xC9\x07\x68\x00\x00\x00\x00\xC7\x05\x00\x00\x00\x00\x00\x00\x00\x00\x88\x0D\x00\x00\x00\x00\xC7\x05\x00\x00\x00\x00\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x83\xC4\x04\xE8\x00\x00\x00\x00\x8B\x10\x8B\xC8\x8B\x42\x08\x68\x00\x00\x00\x00\xFF\xD0\x5B\xC3",
@@ -356,21 +376,21 @@ void RestoreCommands::cmd_register_commands() {
 				"\x89\x35\x00\x00\x00\x00\xC7\x05\x00\x00\x00\x00\x00\x00\x00\x00\xF3\x0F\x11\x05\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x59\xE8\x00\x00\x00\x00\x8B\x10\x68\x00\x00\x00\x00\x8B\xC8\xFF\x52\x08\xB8\x00\x00\x00\x00\x85\x05\x00\x00\x00\x00\x75\x59\x09\x05",
 				"xx????xx????????xxxx????x????xx????xxx????xxxxxx????xx????xxxx");
 
-			// Вычисляем указатель cmd_float r_sun_tsm_projection что-бы вытащить из него __vftable
+			// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ cmd_float r_sun_tsm_projection пїЅпїЅпїЅ-пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅ __vftable
 			cmd_float_struct_ll* pCmd = (cmd_float_struct_ll*)(*(DWORD*)(mov + 2));
 
 			// F3 0F 5E 05 ? ? ? ? 0F 28 CC
 			DWORD divss = FindPatternInEXE("\xF3\x0F\x5E\x05\x00\x00\x00\x00\x0F\x28\xCC", "xxxx????xxx");
 
-			// Вычисляем адрес fov
+			// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ fov
 			float* r_base_fov_Address = (float*)(*(DWORD*)(divss + 4));
 
-			// Создаём команду
+			// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 			r_base_fov.construct(pCmd->__vftable, "r_base_fov", r_base_fov_Address, 45.0f, 90.0f, true);
 			cu.command_add(&r_base_fov);
 		}
 	} else {
-		// Вычисляем указатель ucmd_save_player save_player что-бы вытащить из него __vftable
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ucmd_save_player save_player пїЅпїЅпїЅ-пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅ __vftable
 		// c7 05 ? ? ? ? ? ? ? ? e8 ? ? ? ? 83 c4 ? 8b 0d ? ? ? ? 3b cb 75 ? e8 ? ? ? ? 3b c3 74 ? 8b f8 e8 ? ? ? ? eb ? 33 c0 8b f0 a3 ? ? ? ? e8 ? ? ? ? 8b 0d ? ? ? ? 8b 01 8b 50 ? 68 ? ? ? ? ff d2 5f
 		DWORD mov = FindPatternInEXE(
 			"\xc7\x05\x00\x00\x00\x00\x00\x00\x00\x00\xe8\x00\x00\x00\x00\x83\xc4\x00\x8b\x0d\x00\x00\x00\x00\x3b\xcb\x75\x00\xe8\x00\x00\x00\x00\x3b\xc3\x74\x00\x8b\xf8\xe8\x00\x00\x00\x00\xeb\x00\x33\xc0\x8b\xf0\xa3\x00\x00\x00\x00\xe8\x00\x00\x00\x00\x8b\x0d\x00\x00\x00\x00\x8b\x01\x8b\x50\x00\x68\x00\x00\x00\x00\xff\xd2\x5f",

@@ -11,6 +11,7 @@ GAME Utils::Game;
 
 bool Utils::isReduxEGS = false;
 bool Utils::isExodusPatched = false;
+bool Utils::isExodusEE = false;
 
 DWORD64* Utils::g_level;
 DWORD64* Utils::g_game;
@@ -51,7 +52,7 @@ Utils::Utils()
 
 			// A1 ? ? ? ? 85 C0 0F 84 ? ? ? ? 8B 48 14 85 C9 0F 84 - ORIG 2033
 			DWORD mov_g_level = FindPatternInEXE("\xA1\x00\x00\x00\x00\x85\xC0\x0F\x84\x00\x00\x00\x00\x8B\x48\x14\x85\xC9\x0F\x84", "x????xxxx????xxxxxxx");
-			// вычисняем адрес и получаем g_level
+			// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ g_level
 			g_level = *(DWORD**)(mov_g_level + 1);
 
 			// D9 05 ? ? ? ? 8B 11 8B 42 28 - ORIG 2033
@@ -81,13 +82,13 @@ Utils::Utils()
 				"\x55\x8B\xEC\x83\xE4\x00\xA1\x00\x00\x00\x00\x85\xC0\x75\x00\xE8\x00\x00\x00\x00\x8B\xC8\xA3\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xA1\x00\x00\x00\x00\x8B\xE5",
 				"xxxxx?x????xxx?x????xxx????x????x????xx");
 
-			// читаем адрес инструкции mov eax, g_game
+			// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mov eax, g_game
 			// A1 ? ? ? ? 0F 57 C0 56 - Last Light
 			DWORD mov_g_game = FindPatternInEXE(
 				"\xA1\x00\x00\x00\x00\x0F\x57\xC0\x56",
 				"x????xxxx");
 
-			// вычисняем адрес и получаем g_game
+			// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ g_game
 			g_game = *(DWORD**)(mov_g_game + 1);
 
 			// 83 EC 14 53 55 56 8B F1 8B 4C 24 24 57 85 C9 75 0C 33 C0 5F 5E 5D 5B 83 C4 14 C2 08 00 - Last Light
@@ -204,7 +205,19 @@ Utils::Utils()
 			isExodusPatched = true;
 		}
 
-		if (Utils::rlog != NULL) {
+		// Enhanced Edition: rlog pattern does not match but slog pattern does
+		if (Utils::rlog == NULL) {
+			// 40 56 B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 48 8B F1 - slog Exodus EE
+			DWORD64 slog_ee = FindPatternInEXE(
+				"\x40\x56\xB8\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x2B\xE0\x48\x8B\xF1",
+				"xxx????x????xxxxxx");
+			if (slog_ee != NULL) {
+				isExodusEE = true;
+				isExodusPatched = true;
+			}
+		}
+
+		if (Utils::rlog != NULL || isExodusEE) {
 			isInited = true;
 
 			// 48 89 5C 24 ? 66 44 89 4C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 30 83 3D - Exodus ALL
@@ -217,6 +230,13 @@ Utils::Utils()
 				"\x48\x8B\x05\x00\x00\x00\x00\x4C\x8D\x87\x00\x00\x00\x00\x48\x8D\x97\x00\x00\x00\x00\x48\x8D\x4C\x24\x00\x48\x8B\x58\x10\xE8\x00\x00\x00\x00\x48\x8B\xD0\x48\x89\x74\x24\x00\x0F\x57\xDB\x0F\x57\xD2\x48\x8B\xCB\xE8\x00\x00\x00\x00\xB8\x00\x00\x00\x00\xEB\x05",
 				"xxx????xxx????xxx????xxxx?xxxxx????xxxxxxx?xxxxxxxxxx????x????xx");
 
+			if (mov_g_game == NULL) {
+				// 48 8B 0D ? ? ? ? 0F 57 DB 0F 57 D2 ? 89 74 24 ? 48 8B ? 48 8B 49 10 E8 ? ? ? ? B8 48 00 00 00 EB 05 - Exodus EE (caller of camera_manager_play_track)
+				mov_g_game = FindPatternInEXE(
+					"\x48\x8B\x0D\x00\x00\x00\x00\x0F\x57\xDB\x0F\x57\xD2\x00\x89\x74\x24\x00\x48\x8B\x00\x48\x8B\x49\x10\xE8\x00\x00\x00\x00\xB8\x48\x00\x00\x00\xEB\x05",
+					"xxx????xxxxxx?xxx?xx?xxxxx????xxxxxxx");
+			}
+
 			DWORD64 mov_g_string_container;
 
 			if (isExodusPatched) {
@@ -225,40 +245,43 @@ Utils::Utils()
 					"\x48\x8B\x0D\x00\x00\x00\x00\x48\x8D\x15\x00\x00\x00\x00\x45\x33\xC9\x45\x8D\x41\x05\xE8\x00\x00\x00\x00\x44\x8B\xC0\x4C\x8D\x0D\x00\x00\x00\x00\x85\xC0\x74\x19",
 					"xxx????xxx????xxxxxxxx????xxxxxx????xxxx");
 
-				// читаем адрес инструкции mov eax, [engine.time._global_ms]
+				// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mov eax, [engine.time._global_ms]
 				// 8B 05 ? ? ? ? 48 05 ? ? ? ? 48 3B C1 48 0F 47 C1 89 87 ? ? ? ? 48 85 D2 74 17 F0 0F C1 72 ? 83 FE 01 75 0D 48 8D 8C 24 ? ? ? ? E8 ? ? ? ? 48 8B C7 48 81 C4 - Exodus NEW
 				DWORD64 mov = FindPatternInEXE(
 					"\x8B\x05\x00\x00\x00\x00\x48\x05\x00\x00\x00\x00\x48\x3B\xC1\x48\x0F\x47\xC1\x89\x87\x00\x00\x00\x00\x48\x85\xD2\x74\x17\xF0\x0F\xC1\x72\x00\x83\xFE\x01\x75\x0D\x48\x8D\x8C\x24\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x8B\xC7\x48\x81\xC4",
 					"xx????xx????xxxxxxxxx????xxxxxxxxx?xxxxxxxxx????x????xxxxxx");
 
-				// вычисляем адрес и получаем engine.time._global_ms
-				engine_time__global_ms = (UINT*)GetAddrFromRelativeInstr(mov, 5, 2);
+				// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ engine.time._global_ms
+				if (mov != NULL)
+					engine_time__global_ms = (UINT*)GetAddrFromRelativeInstr(mov, 5, 2);
 
 				///////////////////////////////////////////////////////////////
 
-				// читаем адрес инструкции mov rcx, [g_level]
-				// 48 8B 0D ? ? ? ? 48 8B 41 28 48 85 C0 74 20 48 8D 90 ? ? ? ? 48 8B 02 48 85 C0 75 14 48 8B CA E8 ? ? ? ? 48 8B 0D ? ? ? ? EB 03 48 8B C5 48 89 44 24 ? 48 85 C0 74 0B F0 FF 40 08 48 8B 0D - Exodus NEW
+				// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mov rcx, [g_level]
+				// 48 8B 0D ? ? ? ? 48 8B 41 28 48 85 C0 74 20 48 8D 90 ? ? ? ? 48 8B 02 48 85 C0 75 14 48 8B CA E8 ? ? ? ? 48 8B 0D ? ? ? ? EB 03 48 8B ? 48 89 44 24 ? 48 85 C0 74 0B F0 FF 40 08 48 8B 0D - Exodus NEW & EE
 				mov_g_level = FindPatternInEXE(
-					"\x48\x8B\x0D\x00\x00\x00\x00\x48\x8B\x41\x28\x48\x85\xC0\x74\x20\x48\x8D\x90\x00\x00\x00\x00\x48\x8B\x02\x48\x85\xC0\x75\x14\x48\x8B\xCA\xE8\x00\x00\x00\x00\x48\x8B\x0D\x00\x00\x00\x00\xEB\x03\x48\x8B\xC5\x48\x89\x44\x24\x00\x48\x85\xC0\x74\x0B\xF0\xFF\x40\x08\x48\x8B\x0D",
-					"xxx????xxxxxxxxxxxx????xxxxxxxxxxxx????xxx????xxxxxxxxx?xxxxxxxxxxxx");
+					"\x48\x8B\x0D\x00\x00\x00\x00\x48\x8B\x41\x28\x48\x85\xC0\x74\x20\x48\x8D\x90\x00\x00\x00\x00\x48\x8B\x02\x48\x85\xC0\x75\x14\x48\x8B\xCA\xE8\x00\x00\x00\x00\x48\x8B\x0D\x00\x00\x00\x00\xEB\x03\x48\x8B\x00\x48\x89\x44\x24\x00\x48\x85\xC0\x74\x0B\xF0\xFF\x40\x08\x48\x8B\x0D",
+					"xxx????xxxxxxxxxxxx????xxxxxxxxxxxx????xxx????xxxx?xxxx?xxxxxxxxxxxx");
 
-				// читаем адрес инструкции mov rbx, [g_entities]
+				// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mov rbx, [g_entities]
 				// 48 8B 1D ? ? ? ? 48 8B F2 48 C7 C7 ? ? ? ? 33 C0 F0 0F B1 BB ? ? ? ? 74 5D 8B 83 ? ? ? ? 85 C0 74 47 8B 0D ? ? ? ? 03 0D ? ? ? ? 74 0E 48 8D 0D ? ? ? ? E8 ? ? ? ? EB DA - Exodus NEW
 				mov = FindPatternInEXE(
 					"\x48\x8B\x1D\x00\x00\x00\x00\x48\x8B\xF2\x48\xC7\xC7\x00\x00\x00\x00\x33\xC0\xF0\x0F\xB1\xBB\x00\x00\x00\x00\x74\x5D\x8B\x83\x00\x00\x00\x00\x85\xC0\x74\x47\x8B\x0D\x00\x00\x00\x00\x03\x0D\x00\x00\x00\x00\x74\x0E\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xEB\xDA",
 					"xxx????xxxxxx????xxxxxx????xxxx????xxxxxx????xx????xxxxx????x????xx");
 
-				// вычисляем адрес и получаем g_entities
-				g_entities = (DWORD64*)GetAddrFromRelativeInstr(mov, 7, 3);
+				// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ g_entities
+				if (mov != NULL)
+					g_entities = (DWORD64*)GetAddrFromRelativeInstr(mov, 7, 3);
 
-				// читаем адрес инструкции mulss xmm2, cs:slowmo_scale_debug
+				// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mulss xmm2, cs:slowmo_scale_debug
 				// F3 0F 59 15 ? ? ? ? F3 0F 59 15 ? ? ? ? F3 0F 59 D0 F3 0F 58 15 ? ? ? ? 0F 28 F2 - Exodus NEW
 				DWORD64 mulss = FindPatternInEXE(
 					"\xF3\x0F\x59\x15\x00\x00\x00\x00\xF3\x0F\x59\x15\x00\x00\x00\x00\xF3\x0F\x59\xD0\xF3\x0F\x58\x15\x00\x00\x00\x00\x0F\x28\xF2",
 					"xxxx????xxxx????xxxxxxxx????xxx");
 
-				// вычисляем адрес и получаем slowmo_scale_debug
-				slowmo_scale_debug = (float*)GetAddrFromRelativeInstr(mulss, 8, 4);
+				// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ slowmo_scale_debug
+				if (mulss != NULL)
+					slowmo_scale_debug = (float*)GetAddrFromRelativeInstr(mulss, 8, 4);
 			} else {
 				// 48 8B 0D ? ? ? ? 45 33 C9 89 7C 24 30 - Exodus OLD
 				mov_g_string_container = FindPatternInEXE(
@@ -266,7 +289,8 @@ Utils::Utils()
 					"xxx????xxxxxxx");
 			}
 
-			g_string_container = (void**)GetAddrFromRelativeInstr(mov_g_string_container, 7, 3);
+			if (mov_g_string_container != NULL)
+				g_string_container = (void**)GetAddrFromRelativeInstr(mov_g_string_container, 7, 3);
 		}
 	}
 
@@ -297,11 +321,12 @@ Utils::Utils()
 			}
 		}
 
-		// вычисляем адрес и получаем g_game
-		g_game = (DWORD64*)GetAddrFromRelativeInstr(mov_g_game, 7, 3);
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ g_game
+		if (mov_g_game != NULL)
+			g_game = (DWORD64*)GetAddrFromRelativeInstr(mov_g_game, 7, 3);
 
 		if (mov_g_level != NULL) {
-			// вычисляем адрес и получаем g_level
+			// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ g_level
 			g_level = (DWORD64*)GetAddrFromRelativeInstr(mov_g_level, 7, 3);
 		}
 	}
@@ -337,7 +362,7 @@ DWORD64 Utils::GetAddrFromRelativeInstr(DWORD64 instr_addr, int instr_len, int r
 // Only EXODUS
 UINT Utils::GetTimeGlobalMS()
 {
-	if (isExodus()) {
+	if (isExodus() && engine_time__global_ms != nullptr) {
 		return *engine_time__global_ms;
 	} else {
 		return NULL;
@@ -346,17 +371,23 @@ UINT Utils::GetTimeGlobalMS()
 
 DWORD64 Utils::GetGLevel()
 {
-	return *g_level;
+	if (g_level != nullptr) {
+		return *g_level;
+	}
+	return 0;
 }
 
 DWORD64 Utils::GetGGame()
 {
-	return *g_game;
+	if (g_game != nullptr) {
+		return *g_game;
+	}
+	return 0;
 }
 
 DWORD64 Utils::GetGEntities()
 {
-	if (isExodus()) {
+	if (isExodus() && g_entities != nullptr) {
 		return *g_entities;
 	} else {
 		return NULL;
@@ -365,6 +396,7 @@ DWORD64 Utils::GetGEntities()
 
 void Utils::slowmo_debug_increase()
 {
+	if (slowmo_scale_debug == nullptr) return;
 	if (*slowmo_scale_debug > 0.0099999998) {
 		if (*slowmo_scale_debug > 0.029999999) {
 			if (*slowmo_scale_debug > 0.059999999) {
@@ -385,6 +417,7 @@ void Utils::slowmo_debug_increase()
 
 void Utils::slowmo_debug_decrease()
 {
+	if (slowmo_scale_debug == nullptr) return;
 	if (*slowmo_scale_debug <= 0.5) {
 		if (*slowmo_scale_debug <= 0.25) {
 			if (*slowmo_scale_debug <= 0.12) {
@@ -409,6 +442,7 @@ void Utils::slowmo_debug_decrease()
 
 void Utils::slowmo_debug(float f)
 {
+	if (slowmo_scale_debug == nullptr) return;
 	*slowmo_scale_debug = f;
 }
 
@@ -461,6 +495,7 @@ float Utils::GetDeltaF()
 void* Utils::str_shared(const char* str)
 {
 #ifdef _WIN64
+	if (str_container_do_dock == nullptr || g_string_container == nullptr) return nullptr;
 	return str_container_do_dock(*g_string_container, str, strlen(str), 0);
 #else
 	if (is2033()) {

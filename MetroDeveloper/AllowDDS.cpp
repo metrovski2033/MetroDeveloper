@@ -38,8 +38,10 @@ AllowDDS::AllowDDS()
 				"\x0F\x85\x00\x00\x00\x00\x48\x8B\x00\x00\x00\x00\x00\x48\x8D\x1D",
 				"xx????xx?????xxx");
 
-			BYTE JMP[] = { 0x90, 0xE9 };
-			ASMWrite(jne, JMP, sizeof(JMP));
+			if (jne != NULL) {
+				BYTE JMP[] = { 0x90, 0xE9 };
+				ASMWrite(jne, JMP, sizeof(JMP));
+			}
 		}
 #endif
 	}
