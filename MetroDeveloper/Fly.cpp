@@ -329,7 +329,24 @@ void __fastcall Fly::exodus_cflycam_r_on_key_press(void* _this, int action, int 
 		}
 		break;
 	}
-	case 197: { // PAUSE
+	case 55: { // NUMPAD * — gamespeed を 1.0 (既定値) にリセット
+		static ULONGLONG s_lastTickReset = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickReset) < 200) break;
+		s_lastTickReset = _now;
+
+		isTimeIncreased = false;
+		Utils::slowmo_debug(1.0f);
+		break;
+	}
+	case 82: { // NUMPAD 0 (旧: 197 PAUSE — Pauseキーを持たないキーボード向けに NUMPAD 0 へ変更)
+		// EE は単発プレスでハンドラを複数回発火するため、pause がトグルし続けてしまう。
+		// NUMPAD+/- と同様に 200ms デバウンスを適用。
+		static ULONGLONG s_lastTickPause = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickPause) < 200) break;
+		s_lastTickPause = _now;
+
 		uconsole_server_exodus** console = (uconsole_server_exodus**)Utils::GetConsole();
 		(*console)->execute_deferred(console, "pause");
 		break;
