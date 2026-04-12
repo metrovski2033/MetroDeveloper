@@ -297,20 +297,28 @@ void __fastcall Fly::exodus_cflycam_r_on_key_press(void* _this, int action, int 
 	case 1: // ESC
 		*(DWORD*)((DWORD64)_this - 0x4) |= 0x40000000u; // ����� �� ������ �����
 		break;
-	case 28: { // ENTER
-		// ��������
+	case 28: { // ENTER — プレイヤーをカメラ位置にテレポート
 		float _speed = *(float*)((DWORD64)_this + 0x100);
-		
-		DWORD64 _startup_entity = *(DWORD64*)(Utils::GetGLevel() + 0x20);
-		DWORD64 _control_entity = *(DWORD64*)(Utils::GetGLevel() + 0x28);
-		DWORD64 _view_entity = *(DWORD64*)(Utils::GetGLevel() + 0x30);
-		
-		if (Utils::GetTimeGlobalMS() >= LODWORD(_speed)  && _control_entity)
+		DWORD64 _g_level = Utils::GetGLevel();
+		DWORD64 _control_entity = _g_level ? *(DWORD64*)(_g_level + 0x28) : 0;
+
+		// クールダウンチェック: engine_time__global_ms が見つからない (EE) 場合や EE 自体の場合はスキップ。
+		// EE では engine_time__global_ms のパターンがマッチせず GetTimeGlobalMS() が常に 0 を返すため、
+		// `now (0) >= speed` が永久に false となり ENTER が発火しない。連打防止用なので外して問題ない。
+		bool _cooldownOk = (Utils::engine_time__global_ms == nullptr) || Utils::isExodusEE
+			|| (Utils::GetTimeGlobalMS() >= LODWORD(_speed));
+
+		DWORD64 _vtable = _control_entity ? *(DWORD64*)_control_entity : 0;
+		// EE では vtable レイアウト変更で force_transform が 0x1E8 → 0x200 に 3スロット分シフトしている。
+		DWORD64 _offset = Utils::isExodusEE ? 0x200 : 0x1E8;
+		DWORD64 _ft_ptr = _vtable ? *(DWORD64*)(_vtable + _offset) : 0;
+
+		if (_cooldownOk && _control_entity && _ft_ptr)
 		{
-			_force_transform force_transform = *(_force_transform*) ((*((DWORD64*)_control_entity)) + 0x1E8);
+			_force_transform force_transform = (_force_transform)_ft_ptr;
 			force_transform((void*)_control_entity, (float*)((DWORD64)_this + 0x20), 0);
 
-			*(DWORD*)((DWORD64)_this - 0x4) |= 0x40000000u; // ����� �� ������ �����
+			*(DWORD*)((DWORD64)_this - 0x4) |= 0x40000000u;
 		}
 		break;
 	}
@@ -327,11 +335,23 @@ void __fastcall Fly::exodus_cflycam_r_on_key_press(void* _this, int action, int 
 		break;
 	}
 	case 78: { // NUMPAD PLUS
+		// EE は単発プレスでハンドラを複数回 (典型的に 9 回) 発火するため、
+		// 200ms 未満の連続呼び出しは無視する。state/resending では抑制不可だった。
+		static ULONGLONG s_lastTickPlus = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickPlus) < 200) break;
+		s_lastTickPlus = _now;
+
 		isTimeIncreased = true;
 		Utils::slowmo_debug_increase();
 		break;
 	}
 	case 74: { // NUMPAD MINUS
+		static ULONGLONG s_lastTickMinus = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickMinus) < 200) break;
+		s_lastTickMinus = _now;
+
 		if (isTimeIncreased) {
 			isTimeIncreased = false;
 			Utils::slowmo_debug(1.0f);

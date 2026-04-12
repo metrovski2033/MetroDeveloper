@@ -217,6 +217,19 @@ Utils::Utils()
 			}
 		}
 
+		// Enhanced Edition の最終判定は INI で上書き可能にする。
+		// 自動検出 (slog_ee パターン) は誤判定リスクがあるため、ユーザーが [other] enhanced_edition で
+		// 明示的に指定できるようにする。既定値は自動検出結果。
+		// - INI に enhanced_edition=yes → 強制的に EE 扱い (テレポート offset 0x200、NUMPAD デバウンス有効)
+		// - INI に enhanced_edition=no  → 強制的に非EE 扱い
+		// - INI 未設定 → 自動検出結果のまま
+		if (Utils::GetBool("other", "enhanced_edition", isExodusEE)) {
+			isExodusEE = true;
+			isExodusPatched = true;
+		} else {
+			isExodusEE = false;
+		}
+
 		if (Utils::rlog != NULL || isExodusEE) {
 			isInited = true;
 
