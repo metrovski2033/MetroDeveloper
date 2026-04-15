@@ -32,6 +32,11 @@ Unlock3rdPerson::Unlock3rdPerson()
 				base_npc_cameras_cam_set = (_base_npc_cameras_cam_set)FindPatternInEXE(
 					"\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x48\x89\x7C\x24\x00\x41\x56\x48\x83\xEC\x30\x48\x63\x81\x00\x00\x00\x00\x48\x8B",
 					"xxxx?xxxx?xxxx?xxxxxxxxx????xx");
+
+				// EE ではcontrol_entityからbase_npc_camerasへのオフセットが 0x928 → 0x9D0 にシフト
+				if (Utils::isExodusEE) {
+					base_npc_cameras_exodus_offset = 0x9D0;
+				}
 			} else {
 				// 48 89 5C 24 ? 48 89 74 24 ? 48 89 7C 24 ? 41 56 48 83 EC 30 48 63 81 - Exodus OLD
 				base_npc_cameras_cam_set = (_base_npc_cameras_cam_set)FindPatternInEXE(
