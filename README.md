@@ -9,7 +9,6 @@
 - Это модифицированная версия https://github.com/tsnest/MetroDeveloper для работы с Metro Exodus Enhanced Edition.
 - При использовании в EE необходимо внести следующие настройки в раздел ```[other]``` файла MetroDeveloper.ini.
   - Добавьте строку ```enhanced_edition = yes```
-  - Установите значение ```unlock_3rd_person_camera = no``` (для предотвращения сбоев)
 - Собрано с помощью Visual Studio 2026
   - ```msbuild MetroDeveloper.sln /p:Configuration=Release /p:Platform=x64```
 
@@ -17,7 +16,6 @@
 - This is a modified version of https://github.com/tsnest/MetroDeveloper to work with Metro Exodus Enhanced Edition.
 - When using the Enhanced Edition, please configure the following in the ```[other]``` section of MetroDeveloper.ini:
   - Add ```enhanced_edition = yes```
-  - Set ```unlock_3rd_person_camera = no``` (to prevent crashes)
 - Built with Visual Studio 2026
   - ```msbuild MetroDeveloper.sln /p:Configuration=Release /p:Platform=x64```
 
