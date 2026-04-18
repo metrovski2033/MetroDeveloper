@@ -205,29 +205,11 @@ Utils::Utils()
 			isExodusPatched = true;
 		}
 
-		// Enhanced Edition: rlog pattern does not match but slog pattern does
-		if (Utils::rlog == NULL) {
-			// 40 56 B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 48 8B F1 - slog Exodus EE
-			DWORD64 slog_ee = FindPatternInEXE(
-				"\x40\x56\xB8\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x2B\xE0\x48\x8B\xF1",
-				"xxx????x????xxxxxx");
-			if (slog_ee != NULL) {
-				isExodusEE = true;
-				isExodusPatched = true;
-			}
-		}
-
-		// Enhanced Edition の最終判定は INI で上書き可能にする。
-		// 自動検出 (slog_ee パターン) は誤判定リスクがあるため、ユーザーが [other] enhanced_edition で
-		// 明示的に指定できるようにする。既定値は自動検出結果。
-		// - INI に enhanced_edition=yes → 強制的に EE 扱い (テレポート offset 0x200、NUMPAD デバウンス有効)
-		// - INI に enhanced_edition=no  → 強制的に非EE 扱い
-		// - INI 未設定 → 自動検出結果のまま
-		if (Utils::GetBool("other", "enhanced_edition", isExodusEE)) {
+		// Enhanced Edition の判定は INI の [other] enhanced_edition フラグのみで行う。
+		// slog_ee パターンは非EE Exodus でもマッチするため自動検出には使えない。
+		if (Utils::GetBool("other", "enhanced_edition", false)) {
 			isExodusEE = true;
 			isExodusPatched = true;
-		} else {
-			isExodusEE = false;
 		}
 
 		if (Utils::rlog != NULL || isExodusEE) {

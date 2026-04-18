@@ -789,11 +789,7 @@ void __fastcall Hooks::slog_Hook(const char* s)
 
 	LogFile::slog(s);
 
-	// EE's slog uses a TLS-based log context that is not initialized for threads
-	// that bypass EE's thread setup. Skip slog_Orig for EE to avoid ACCESS_VIOLATION.
-	if (!Utils::isExodusEE) {
-		slog_Orig(s);
-	}
+	slog_Orig(s);
 }
 
 ///////////////////////////////////////////////////////////////
