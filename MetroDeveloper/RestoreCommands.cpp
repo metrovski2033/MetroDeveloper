@@ -26,6 +26,8 @@ cmd_executor_struct_ll signal_old;
 uconsole_command_exodus_vtbl signal_vftable_exodus;
 uconsole_command_exodus_vtbl fly_vftable_exodus;
 uconsole_command_exodus_vtbl refly_vftable_exodus;
+uconsole_command_exodus_vtbl civ_off_vftable_exodus;
+uconsole_command_exodus_vtbl civ_restore_vftable_exodus;
 
 cmd_mask_struct_a1 g_god_new;
 cmd_mask_struct_a1 g_global_god_new;
@@ -36,11 +38,32 @@ cmd_mask_struct_a1 g_godbless_new;
 cmd_executor_struct_a1 fly_new;
 cmd_executor_struct_a1 refly_new;
 cmd_executor_struct_a1 signal_new;
+cmd_executor_struct_a1 civ_off_new;
+cmd_executor_struct_a1 civ_restore_new;
 
 DWORD64 igame_level_signal;
 _unknown_exodus unknown_exodus;
 int* refly_default_cycles_exodus = nullptr;
 float* refly_default_speed_exodus = nullptr;
+
+static void** civ_global_ptr_addr = nullptr;
+static _erase_civil erase_civil_fn = nullptr;
+
+// civ save/restore 用構造体
+struct civ_saved_entry1 {
+	BYTE data[0x28];
+	uint16_t index;
+};
+struct civ_saved_entry2 {
+	BYTE data[0x30];
+	uint16_t index;
+};
+static const int CIV_MAX_SAVE = 64;
+static civ_saved_entry1 civ_save1[CIV_MAX_SAVE];
+static civ_saved_entry2 civ_save2[CIV_MAX_SAVE];
+static int civ_save1_count = 0;
+static int civ_save2_count = 0;
+static bool civ_has_saved = false;
 
 #else
 
@@ -122,6 +145,23 @@ RestoreCommands::RestoreCommands()
 				igame_level_signal = Utils::GetAddrFromRelativeInstr(call_igame_level_signal, 5, 1);
 			if (call_unknown_exodus != NULL)
 				unknown_exodus = (_unknown_exodus) Utils::GetAddrFromRelativeInstr(call_unknown_exodus, 5, 1);
+
+			// civ_off: erase_wrapper 関数本体を探す (Exodus/EE共通で試行)
+			// 40 53 48 83 EC 20 48 8B 05 ? ? ? ? 48 8B D9 48 8B 48 28
+			// 48 85 C9 74 ? 48 8B 01 FF 90 60 08 00 00 48 85 C0 74 ?
+			// 48 8B 88 F0 10 00 00 48 8B D3 E8 ? ? ? ? 48 83 C4 20 5B C3
+			DWORD64 erase_wrapper = FindPatternInEXE(
+				"\x40\x53\x48\x83\xEC\x20\x48\x8B\x05\x00\x00\x00\x00\x48\x8B\xD9\x48\x8B\x48\x28"
+				"\x48\x85\xC9\x74\x00\x48\x8B\x01\xFF\x90\x60\x08\x00\x00\x48\x85\xC0\x74\x00\x48"
+				"\x8B\x88\xF0\x10\x00\x00\x48\x8B\xD3\xE8\x00\x00\x00\x00\x48\x83\xC4\x20\x5B\xC3",
+				"xxxxxxxxx????xxxxxxxxxxx?xxxxxxxxxxxxx?xxxxxxxxxxx????xxxxxx");
+			if (erase_wrapper != NULL) {
+				// +6: mov rax, [rip+disp32] (7バイト命令, disp は +3)
+				civ_global_ptr_addr = (void**)Utils::GetAddrFromRelativeInstr(erase_wrapper + 6, 7, 3);
+				// +49: call rel32 → erase_civil 関数本体
+				erase_civil_fn = (_erase_civil)Utils::GetAddrFromRelativeInstr(erase_wrapper + 49, 5, 1);
+				OutputDebugStringA("[MetroDev] civ_off: pattern found\n");
+			}
 		}
 #endif
 	}
@@ -175,6 +215,153 @@ void __thiscall RestoreCommands::fly_execute(void* _this, const char* name)
 
 	Fly::fly(name, false, 0, 0);
 }
+
+#ifdef _WIN64
+static void* civ_resolve_container()
+{
+	if (civ_global_ptr_addr == nullptr) return nullptr;
+	void* g = *civ_global_ptr_addr;
+	if (g == nullptr) return nullptr;
+	void* mgr = *(void**)((char*)g + 0x28);
+	if (mgr == nullptr) return nullptr;
+	void** vtable = *(void***)mgr;
+	if (vtable == nullptr) return nullptr;
+	typedef void* (__fastcall *vmeth_t)(void*);
+	vmeth_t get_actor = (vmeth_t)(*(void**)((char*)vtable + 0x860));
+	if (get_actor == nullptr) return nullptr;
+	void* actor = get_actor(mgr);
+	if (actor == nullptr) return nullptr;
+	return *(void**)((char*)actor + 0x10F0);
+}
+
+void __fastcall RestoreCommands::civ_off_execute(void* _this, const char* args)
+{
+	if (erase_civil_fn == nullptr) return;
+
+	void* container = civ_resolve_container();
+	if (container == nullptr) {
+		OutputDebugStringA("[MetroDev] civ_off: container unresolved\n");
+		return;
+	}
+
+	uint16_t count1 = *(uint16_t*)((char*)container + 0x4A);
+	void* base1 = *(void**)((char*)container + 0x40);
+	if (base1 == nullptr || count1 == 0) {
+		OutputDebugStringA("[MetroDev] civ_off: no active civil tasks\n");
+		return;
+	}
+
+	// 消去前にエントリを保存 (第1配列: offset 0x40, count at 0x4A, entry 0x28)
+	civ_save1_count = 0;
+	for (uint16_t i = 0; i < count1 && civ_save1_count < CIV_MAX_SAVE; ++i) {
+		void* entry = (char*)base1 + i * 0x28;
+		void* id = *(void**)((char*)entry + 0x10);
+		if (id != nullptr) {
+			memcpy(civ_save1[civ_save1_count].data, entry, 0x28);
+			civ_save1[civ_save1_count].index = i;
+			civ_save1_count++;
+		}
+	}
+
+	// 第2配列: offset 0x30, count at 0x3A, entry 0x30, task_id at entry+0x18
+	civ_save2_count = 0;
+	uint16_t count2 = *(uint16_t*)((char*)container + 0x3A);
+	void* base2 = *(void**)((char*)container + 0x30);
+	if (base2 != nullptr) {
+		for (uint16_t i = 0; i < count2 && civ_save2_count < CIV_MAX_SAVE; ++i) {
+			void* entry = (char*)base2 + i * 0x30;
+			void* id = *(void**)((char*)entry + 0x18);
+			if (id != nullptr) {
+				memcpy(civ_save2[civ_save2_count].data, entry, 0x30);
+				civ_save2[civ_save2_count].index = i;
+				civ_save2_count++;
+			}
+		}
+	}
+	civ_has_saved = (civ_save1_count > 0 || civ_save2_count > 0);
+
+	// task_id を収集してから消去
+	const int MAX_IDS = 256;
+	void* ids[MAX_IDS];
+	int n = 0;
+	for (uint16_t i = 0; i < count1 && n < MAX_IDS; ++i) {
+		void* entry = (char*)base1 + i * 0x28;
+		void* id = *(void**)((char*)entry + 0x10);
+		if (id != nullptr) ids[n++] = id;
+	}
+
+	char buf[128];
+	sprintf(buf, "[MetroDev] civ_off: clearing %d task(s), saved %d+%d entries\n",
+		n, civ_save1_count, civ_save2_count);
+	OutputDebugStringA(buf);
+
+	for (int i = 0; i < n; ++i) {
+		erase_civil_fn(container, ids[i]);
+	}
+}
+
+void __fastcall RestoreCommands::civ_restore_execute(void* _this, const char* args)
+{
+	if (!civ_has_saved || (civ_save1_count == 0 && civ_save2_count == 0)) {
+		OutputDebugStringA("[MetroDev] civ_restore: no saved data (run civ_off first)\n");
+		return;
+	}
+
+	void* container = civ_resolve_container();
+	if (container == nullptr) {
+		OutputDebugStringA("[MetroDev] civ_restore: container unresolved\n");
+		return;
+	}
+
+	// atomic lock 取得 (erase_civil と同じパターン)
+	DWORD tid = GetCurrentThreadId();
+	volatile LONG* lock_ptr = (volatile LONG*)((char*)container + 0x270);
+	bool lock_owned = false;
+	for (;;) {
+		LONG prev = InterlockedCompareExchange(lock_ptr, (LONG)tid, 0);
+		if (prev == 0) { lock_owned = true; break; }
+		if (prev == (LONG)tid) break;
+		YieldProcessor();
+	}
+
+	// 第1配列を復元
+	void* base1 = *(void**)((char*)container + 0x40);
+	uint16_t count1 = *(uint16_t*)((char*)container + 0x4A);
+	int restored1 = 0;
+	if (base1 != nullptr) {
+		for (int i = 0; i < civ_save1_count; ++i) {
+			if (civ_save1[i].index < count1) {
+				void* entry = (char*)base1 + civ_save1[i].index * 0x28;
+				memcpy(entry, civ_save1[i].data, 0x28);
+				restored1++;
+			}
+		}
+	}
+
+	// 第2配列を復元
+	void* base2 = *(void**)((char*)container + 0x30);
+	uint16_t count2 = *(uint16_t*)((char*)container + 0x3A);
+	int restored2 = 0;
+	if (base2 != nullptr) {
+		for (int i = 0; i < civ_save2_count; ++i) {
+			if (civ_save2[i].index < count2) {
+				void* entry = (char*)base2 + civ_save2[i].index * 0x30;
+				memcpy(entry, civ_save2[i].data, 0x30);
+				restored2++;
+			}
+		}
+	}
+
+	// lock 解放
+	if (lock_owned) {
+		*lock_ptr = 0;
+	}
+
+	char buf[128];
+	sprintf(buf, "[MetroDev] civ_restore: restored %d+%d entries\n", restored1, restored2);
+	OutputDebugStringA(buf);
+}
+#endif
 
 #ifdef _WIN64
 void __fastcall RestoreCommands::refly_execute(void* _this, const char* args)
@@ -327,6 +514,13 @@ void RestoreCommands::cmd_register_commands() {
 
 		signal_new.construct(Utils::isExodus() ? &signal_vftable_exodus : &signal_vftable, pCmd1->__vftable, "signal", &signal_execute);
 		cu.command_add(&signal_new);
+
+		if (Utils::isExodus() && erase_civil_fn != nullptr) {
+			civ_off_new.construct(&civ_off_vftable_exodus, pCmd1->__vftable, "civ_off", &civ_off_execute);
+			cu.command_add(&civ_off_new);
+			civ_restore_new.construct(&civ_restore_vftable_exodus, pCmd1->__vftable, "civ_restore", &civ_restore_execute);
+			cu.command_add(&civ_restore_new);
+		}
 	}
 #else
 	if (Utils::isLL())

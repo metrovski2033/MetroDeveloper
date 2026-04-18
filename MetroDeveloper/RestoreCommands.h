@@ -7,6 +7,7 @@ typedef void* (__fastcall* _igame_level_signal)(void* _unused, void** str_shared
 typedef void (__fastcall* _igame_level_signal_a1)(void* _unused, void** str_shared, void* parent, const int relatives);
 typedef void (__fastcall* _igame_level_signal_ex)(void* _unused, void** str_shared, void* parent, const int relatives, void* _unknown);
 typedef void* (__fastcall* _unknown_exodus)();
+typedef int (__fastcall* _erase_civil)(void* container, void* task_id);
 
 #else
 
@@ -24,6 +25,8 @@ public:
 	static void __fastcall signal_execute(void* _this, const char* name);
 	static void __fastcall fly_execute(void* _this, const char* name);
 	static void __fastcall refly_execute(void* _this, const char* args);
+	static void __fastcall civ_off_execute(void* _this, const char* args);
+	static void __fastcall civ_restore_execute(void* _this, const char* args);
 #else
 	static void __thiscall signal_execute(void* _this, const char* name);
 	static void __thiscall fly_execute(void* _this, const char* name);
