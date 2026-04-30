@@ -1451,7 +1451,14 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 			}
 		}
 
-		// Step4: グループ化して出力
+		// Step4: グループ化してファイルに出力
+		FILE* fList = fopen("wpn_give_list.log", "w");
+		if (fList == nullptr) {
+			OutputDebugStringA("[MetroDev] wpn_give list: failed to open wpn_give_list.log\n");
+			free(weapons);
+			return;
+		}
+
 		int total = 0;
 		int type_count = 0;
 		char current_type[64] = "";
@@ -1462,15 +1469,13 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 				type_count++;
 				int group_size = 0;
 				for (int c = w; c < weapon_count && strcmp(weapons[c].weapon_type, current_type) == 0; c++) group_size++;
-				sprintf(buf, "[MetroDev] === %s (%d) ===\n", current_type, group_size);
-				OutputDebugStringA(buf);
+				fprintf(fList, "=== %s (%d) ===\n", current_type, group_size);
 			}
-			sprintf(buf, "[MetroDev]   [%d] %s\n", weapons[w].index, weapons[w].name);
-			OutputDebugStringA(buf);
+			fprintf(fList, "  [%d] %s\n", weapons[w].index, weapons[w].name);
 			total++;
 		}
-		sprintf(buf, "[MetroDev] wpn_give list: %d weapons in %d types\n", total, type_count);
-		OutputDebugStringA(buf);
+		fprintf(fList, "\n%d weapons in %d types\n", total, type_count);
+		fclose(fList);
 
 		free(weapons);
 		return;
