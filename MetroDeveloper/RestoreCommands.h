@@ -27,6 +27,9 @@ public:
 	static void __fastcall refly_execute(void* _this, const char* args);
 	static void __fastcall civ_off_execute(void* _this, const char* args);
 	static void __fastcall civ_restore_execute(void* _this, const char* args);
+	static void __fastcall wpn_give_execute(void* _this, const char* args);
+	static void __fastcall wpn_give_pickup_hook_execute(void* _this, const char* args);
+	static void __fastcall wpn_give_attach_hook_execute(void* _this, const char* args);
 #else
 	static void __thiscall signal_execute(void* _this, const char* name);
 	static void __thiscall fly_execute(void* _this, const char* name);

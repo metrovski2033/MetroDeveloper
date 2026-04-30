@@ -4,7 +4,7 @@
 
 void ConsoleUnlocker::clevel_r_on_key_press(int action, int key, int state, int resending)
 {
-	if (action == 39) // bind console
+	if (action == 39 || key == 76) // bind console || NUMPAD 5
 	{
 #ifdef _WIN64
 		if (Utils::isExodus()) {

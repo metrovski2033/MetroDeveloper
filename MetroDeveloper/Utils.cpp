@@ -240,6 +240,13 @@ Utils::Utils()
 					"\x48\x8B\x0D\x00\x00\x00\x00\x48\x8D\x15\x00\x00\x00\x00\x45\x33\xC9\x45\x8D\x41\x05\xE8\x00\x00\x00\x00\x44\x8B\xC0\x4C\x8D\x0D\x00\x00\x00\x00\x85\xC0\x74\x19",
 					"xxx????xxx????xxxxxxxx????xxxxxx????xxxx");
 
+				if (mov_g_string_container == NULL) {
+					// 48 8B 0D ? ? ? ? 48 8D 15 ? ? ? ? 45 33 C9 45 8D 41 ? E8 ? ? ? ? - Exodus EE
+					mov_g_string_container = FindPatternInEXE(
+						"\x48\x8B\x0D\x00\x00\x00\x00\x48\x8D\x15\x00\x00\x00\x00\x45\x33\xC9\x45\x8D\x41\x00\xE8\x00\x00\x00\x00",
+						"xxx????xxx????xxxxxx?x????");
+				}
+
 				// ������ ����� ���������� mov eax, [engine.time._global_ms]
 				// 8B 05 ? ? ? ? 48 05 ? ? ? ? 48 3B C1 48 0F 47 C1 89 87 ? ? ? ? 48 85 D2 74 17 F0 0F C1 72 ? 83 FE 01 75 0D 48 8D 8C 24 ? ? ? ? E8 ? ? ? ? 48 8B C7 48 81 C4 - Exodus NEW
 				DWORD64 mov = FindPatternInEXE(
