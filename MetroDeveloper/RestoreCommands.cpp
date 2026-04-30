@@ -1015,15 +1015,100 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 		return;
 	}
 
-	// list サブコマンド: エンティティを列挙
-	if (strncmp(args, "list", 4) == 0) {
-		const char* prefix = "wpn_";
-		const char* sp = args + 4;
-		while (*sp == ' ') sp++;
-		if (*sp != '\0') prefix = sp;
+	// deepscan サブコマンド: エンティティ内のポインタを辿り参照先の文字列ハンドルを探索
+	if (strncmp(args, "deepscan", 8) == 0) {
+		const char* target = args + 8;
+		while (*target == ' ') target++;
+		if (*target == '\0') {
+			OutputDebugStringA("[MetroDev] deepscan: usage: wpn_give deepscan <name>\n");
+			return;
+		}
 
-		int count = 0;
-		int free_count = 0;
+		void* found_ent = nullptr;
+		int found_idx = -1;
+		const char* found_name = nullptr;
+		for (int i = 0; i < 0xFFFF && found_ent == nullptr; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name != nullptr && strstr(name, target) != nullptr) {
+					found_ent = ent;
+					found_idx = i;
+					found_name = name;
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		if (found_ent == nullptr) {
+			sprintf(buf, "[MetroDev] deepscan: '%s' not found\n", target);
+			OutputDebugStringA(buf);
+			return;
+		}
+
+		sprintf(buf, "[MetroDev] deepscan: [%d] '%s' (%p)\n", found_idx, found_name, found_ent);
+		OutputDebugStringA(buf);
+
+		BYTE* base = (BYTE*)found_ent;
+		MODULEINFO mod;
+		GetModuleInformation(GetCurrentProcess(), GetModuleHandle(NULL), &mod, sizeof(mod));
+		DWORD64 exe_start = (DWORD64)mod.lpBaseOfDll;
+		DWORD64 exe_end = exe_start + mod.SizeOfImage;
+
+		int hit_count = 0;
+		for (DWORD off = 0; off < 0x800; off += 8) {
+			__try {
+				DWORD64 ptr_val = *(DWORD64*)(base + off);
+				if (ptr_val < 0x10000 || ptr_val == (DWORD64)found_ent) continue;
+				// vtableポインタ（exe範囲内）はスキップ
+				if (off == 0) continue;
+				// ヒープ上のオブジェクトを想定（exe範囲外）
+				BYTE* target_obj = (BYTE*)ptr_val;
+
+				// 参照先オブジェクト内を文字列ハンドルスキャン
+				bool found_any = false;
+				for (DWORD t_off = 0; t_off < 0x400; t_off += 4) {
+					__try {
+						DWORD val = *(DWORD*)(target_obj + t_off);
+						if (val == 0) continue;
+						const char* s = resolve_str_handle(val);
+						if (s != nullptr && s[0] != '\0') {
+							if (!found_any) {
+								sprintf(buf, "[MetroDev]   +0x%03X -> %p:\n", off, target_obj);
+								OutputDebugStringA(buf);
+								found_any = true;
+							}
+							sprintf(buf, "[MetroDev]     [+0x%03X] \"%s\"\n", t_off, s);
+							OutputDebugStringA(buf);
+							hit_count++;
+						}
+					} __except(EXCEPTION_EXECUTE_HANDLER) { break; }
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		sprintf(buf, "[MetroDev] deepscan: %d strings found via indirection\n", hit_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
+	// compare サブコマンド: 2つのエンティティのメモリを比較し差分を表示
+	if (strncmp(args, "compare", 7) == 0) {
+		const char* a = args + 7;
+		while (*a == ' ') a++;
+		if (*a == '\0') {
+			OutputDebugStringA("[MetroDev] compare: usage: wpn_give compare <name1> <name2>\n");
+			return;
+		}
+		char name1[64], name2[64];
+		if (sscanf(a, "%63s %63s", name1, name2) != 2) {
+			OutputDebugStringA("[MetroDev] compare: need two names\n");
+			return;
+		}
+
+		void* ent1 = nullptr; void* ent2 = nullptr;
+		int idx1 = -1, idx2 = -1;
+		const char* n1 = nullptr; const char* n2 = nullptr;
 		for (int i = 0; i < 0xFFFF; i++) {
 			void* ent = entity_array[i];
 			if (ent == nullptr) continue;
@@ -1031,51 +1116,363 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
 				if (handle == 0) continue;
 				const char* name = resolve_str_handle(handle);
-				if (name != nullptr && strstr(name, prefix) != nullptr) {
-					void* parent = *(void**)((BYTE*)ent + 0xE0);
-					if (parent == nullptr) {
-						sprintf(buf, "[MetroDev]   [%d] %s  parent=NULL [FREE]\n", i, name);
-						OutputDebugStringA(buf);
-						free_count++;
-					} else {
-						sprintf(buf, "[MetroDev]   [%d] %s  ent=%p parent(+E0)=%p\n", i, name, ent, parent);
-						OutputDebugStringA(buf);
+				if (name == nullptr) continue;
+				if (ent1 == nullptr && strstr(name, name1) != nullptr) { ent1 = ent; idx1 = i; n1 = name; }
+				else if (ent2 == nullptr && strstr(name, name2) != nullptr) { ent2 = ent; idx2 = i; n2 = name; }
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			if (ent1 != nullptr && ent2 != nullptr) break;
+		}
+		if (ent1 == nullptr || ent2 == nullptr) {
+			sprintf(buf, "[MetroDev] compare: not found (ent1=%p ent2=%p)\n", ent1, ent2);
+			OutputDebugStringA(buf);
+			return;
+		}
 
-						// 方法1: entity自身の中をスキャンして[ptr+0x180]==entになるポインタを探す
-						__try {
-							for (DWORD off = 0; off < 0x300; off += 8) {
-								void* ptr = *(void**)((BYTE*)ent + off);
-								if (ptr == nullptr || (DWORD64)ptr < 0x10000) continue;
-								__try {
-									void* val = *(void**)((BYTE*)ptr + 0x180);
-									if (val == ent) {
-										sprintf(buf, "[MetroDev]     -> ent+0x%X=%p  [ptr+180]==ent!\n", off, ptr);
-										OutputDebugStringA(buf);
-									}
-								} __except(EXCEPTION_EXECUTE_HANDLER) {}
-							}
-						} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		sprintf(buf, "[MetroDev] compare: [%d]'%s' vs [%d]'%s'\n", idx1, n1, idx2, n2);
+		OutputDebugStringA(buf);
 
-						// 方法2: parent(+E0)から逆方向にスキャンしてparent_componentを探す
-						__try {
-							for (DWORD back = 0; back <= 0x200; back += 8) {
-								void* candidate = (void*)((BYTE*)parent - back);
-								__try {
-									void* val = *(void**)((BYTE*)candidate + 0x180);
-									if (val == ent) {
-										sprintf(buf, "[MetroDev]     -> parent-0x%X=%p  [cand+180]==ent!\n", back, candidate);
-										OutputDebugStringA(buf);
-									}
-								} __except(EXCEPTION_EXECUTE_HANDLER) {}
-							}
-						} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		BYTE* b1 = (BYTE*)ent1;
+		BYTE* b2 = (BYTE*)ent2;
+		int diff_count = 0;
+		for (DWORD off = 0; off < 0x800; off += 8) {
+			__try {
+				DWORD64 v1 = *(DWORD64*)(b1 + off);
+				DWORD64 v2 = *(DWORD64*)(b2 + off);
+				if (v1 == v2) continue;
+
+				// DWORD上位・下位それぞれ文字列ハンドル解決を試みる
+				const char* s1_lo = nullptr; const char* s1_hi = nullptr;
+				const char* s2_lo = nullptr; const char* s2_hi = nullptr;
+				DWORD lo1 = (DWORD)(v1 & 0xFFFFFFFF);
+				DWORD hi1 = (DWORD)(v1 >> 32);
+				DWORD lo2 = (DWORD)(v2 & 0xFFFFFFFF);
+				DWORD hi2 = (DWORD)(v2 >> 32);
+				if (lo1 != 0) s1_lo = resolve_str_handle(lo1);
+				if (hi1 != 0) s1_hi = resolve_str_handle(hi1);
+				if (lo2 != 0) s2_lo = resolve_str_handle(lo2);
+				if (hi2 != 0) s2_hi = resolve_str_handle(hi2);
+
+				if (s1_lo || s1_hi || s2_lo || s2_hi) {
+					sprintf(buf, "[MetroDev]   +0x%03X: %016llX vs %016llX", off, (unsigned long long)v1, (unsigned long long)v2);
+					OutputDebugStringA(buf);
+					if (s1_lo || s2_lo) {
+						sprintf(buf, "[MetroDev]     +0x%03X(lo): \"%s\" vs \"%s\"", off, s1_lo ? s1_lo : "-", s2_lo ? s2_lo : "-");
+						OutputDebugStringA(buf);
 					}
-					count++;
+					if (s1_hi || s2_hi) {
+						sprintf(buf, "[MetroDev]     +0x%03X(hi): \"%s\" vs \"%s\"", off + 4, s1_hi ? s1_hi : "-", s2_hi ? s2_hi : "-");
+						OutputDebugStringA(buf);
+					}
+				} else {
+					sprintf(buf, "[MetroDev]   +0x%03X: %016llX vs %016llX", off, (unsigned long long)v1, (unsigned long long)v2);
+					OutputDebugStringA(buf);
+				}
+				diff_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		sprintf(buf, "[MetroDev] compare: %d differences in 0x800 bytes\n", diff_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
+	// fields サブコマンド: エンティティメモリ内の有効な文字列ハンドルを全探索
+	if (strncmp(args, "fields", 6) == 0) {
+		const char* target = args + 6;
+		while (*target == ' ') target++;
+		if (*target == '\0') {
+			OutputDebugStringA("[MetroDev] fields: usage: wpn_give fields <name>\n");
+			return;
+		}
+
+		void* found_ent = nullptr;
+		int found_idx = -1;
+		const char* found_name = nullptr;
+		for (int i = 0; i < 0xFFFF && found_ent == nullptr; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name != nullptr && strstr(name, target) != nullptr) {
+					found_ent = ent;
+					found_idx = i;
+					found_name = name;
 				}
 			} __except(EXCEPTION_EXECUTE_HANDLER) {}
 		}
-		sprintf(buf, "[MetroDev] wpn_give list: %d entities matching '%s' (%d free)\n", count, prefix, free_count);
+		if (found_ent == nullptr) {
+			sprintf(buf, "[MetroDev] fields: '%s' not found\n", target);
+			OutputDebugStringA(buf);
+			return;
+		}
+
+		sprintf(buf, "[MetroDev] fields: scanning [%d] '%s' (%p) for string handles...\n", found_idx, found_name, found_ent);
 		OutputDebugStringA(buf);
+
+		BYTE* base = (BYTE*)found_ent;
+		int str_count = 0;
+		for (DWORD off = 0; off < 0x800; off += 4) {
+			__try {
+				DWORD val = *(DWORD*)(base + off);
+				if (val == 0) continue;
+				const char* s = resolve_str_handle(val);
+				if (s != nullptr && s[0] != '\0') {
+					sprintf(buf, "[MetroDev]   +0x%03X: 0x%08X = \"%s\"\n", off, val, s);
+					OutputDebugStringA(buf);
+					str_count++;
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		sprintf(buf, "[MetroDev] fields: %d string handles found\n", str_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
+	// inspect サブコマンド: vtable RVA とエンティティ名を表示
+	if (strncmp(args, "inspect", 7) == 0) {
+		const char* target = args + 7;
+		while (*target == ' ') target++;
+		if (*target == '\0') {
+			OutputDebugStringA("[MetroDev] inspect: usage: wpn_give inspect <name|prefix>\n");
+			return;
+		}
+
+		uintptr_t mod_base = (uintptr_t)GetModuleHandle(NULL);
+		int found_count = 0;
+		for (int i = 0; i < 0xFFFF && found_count < 30; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr || strstr(name, target) == nullptr) continue;
+
+				void** vtable = *(void***)ent;
+				DWORD vt_rva = (DWORD)((uintptr_t)vtable - mod_base);
+
+				sprintf(buf, "[MetroDev] inspect [%d] '%s' vt_rva=0x%08X\n", i, name, vt_rva);
+				OutputDebugStringA(buf);
+
+				// vtableエントリのRVAを表示（基底クラス共通メソッドの特定用）
+				__try {
+					char line[512];
+					int pos = sprintf(line, "[MetroDev]   vt:");
+					for (int v = 0; v < 16; v++) {
+						DWORD fn_rva = (DWORD)((uintptr_t)vtable[v] - mod_base);
+						pos += sprintf(line + pos, " [%d]=%08X", v, fn_rva);
+						if (v == 7) {
+							strcat(line, "\n");
+							OutputDebugStringA(line);
+							pos = sprintf(line, "[MetroDev]   vt:");
+						}
+					}
+					strcat(line, "\n");
+					OutputDebugStringA(line);
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+				found_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		sprintf(buf, "[MetroDev] inspect: %d entities\n", found_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
+	// classes サブコマンド: 全エンティティをvtable RVAでグループ化し、各クラスのサンプル名を表示
+	if (strcmp(args, "classes") == 0) {
+		uintptr_t mod_base = (uintptr_t)GetModuleHandle(NULL);
+
+		struct vt_group {
+			DWORD rva;
+			int count;
+			int first_idx;
+			char sample_names[256];
+			int sample_len;
+		};
+		const int MAX_GROUPS = 128;
+		vt_group* groups = (vt_group*)malloc(sizeof(vt_group) * MAX_GROUPS);
+		if (groups == nullptr) { OutputDebugStringA("[MetroDev] classes: malloc failed\n"); return; }
+		int group_count = 0;
+
+		for (int i = 0; i < 0xFFFF; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+
+				void* vtable = *(void**)ent;
+				DWORD vt_rva = (DWORD)((uintptr_t)vtable - mod_base);
+
+				// 既存グループを検索
+				int gi = -1;
+				for (int g = 0; g < group_count; g++) {
+					if (groups[g].rva == vt_rva) { gi = g; break; }
+				}
+				if (gi < 0 && group_count < MAX_GROUPS) {
+					gi = group_count++;
+					groups[gi].rva = vt_rva;
+					groups[gi].count = 0;
+					groups[gi].first_idx = i;
+					groups[gi].sample_names[0] = '\0';
+					groups[gi].sample_len = 0;
+				}
+				if (gi >= 0) {
+					groups[gi].count++;
+					// 最初の3エンティティ名をサンプルとして記録
+					if (groups[gi].count <= 3 && groups[gi].sample_len < 200) {
+						if (groups[gi].sample_len > 0) {
+							groups[gi].sample_names[groups[gi].sample_len++] = ',';
+							groups[gi].sample_names[groups[gi].sample_len++] = ' ';
+						}
+						int nlen = (int)strlen(name);
+						if (nlen > 40) nlen = 40;
+						memcpy(groups[gi].sample_names + groups[gi].sample_len, name, nlen);
+						groups[gi].sample_len += nlen;
+						groups[gi].sample_names[groups[gi].sample_len] = '\0';
+					}
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		// カウント降順でソート
+		for (int a = 0; a < group_count - 1; a++) {
+			for (int b = a + 1; b < group_count; b++) {
+				if (groups[b].count > groups[a].count) {
+					vt_group tmp = groups[a];
+					groups[a] = groups[b];
+					groups[b] = tmp;
+				}
+			}
+		}
+
+		sprintf(buf, "[MetroDev] classes: %d vtable groups found\n", group_count);
+		OutputDebugStringA(buf);
+		for (int g = 0; g < group_count; g++) {
+			sprintf(buf, "[MetroDev]   vt=0x%08X count=%d  e.g. %s\n",
+				groups[g].rva, groups[g].count, groups[g].sample_names);
+			OutputDebugStringA(buf);
+		}
+		free(groups);
+		return;
+	}
+
+	// list サブコマンド: vtable[4]ベースの武器判定 + entity[+0x240]->[+0x008]の武器種別で分類表示
+	if (strncmp(args, "list", 4) == 0) {
+		const char* filter = nullptr;
+		const char* sp = args + 4;
+		while (*sp == ' ') sp++;
+		if (*sp != '\0') filter = sp;
+
+		// Step1: 既知の武器名からvt[4]の武器判定値を動的取得
+		void* weapon_vt4 = nullptr;
+		const char* ref_probes[] = { "revolver_", "ak_74_", "ashot_", "shotgun_", nullptr };
+		for (int p = 0; ref_probes[p] != nullptr && weapon_vt4 == nullptr; p++) {
+			for (int i = 0; i < 0xFFFF && weapon_vt4 == nullptr; i++) {
+				void* ent = entity_array[i];
+				if (ent == nullptr) continue;
+				__try {
+					DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+					if (handle == 0) continue;
+					const char* name = resolve_str_handle(handle);
+					if (name != nullptr && strncmp(name, ref_probes[p], strlen(ref_probes[p])) == 0) {
+						void** vt = *(void***)ent;
+						weapon_vt4 = vt[4];
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			}
+		}
+
+		if (weapon_vt4 == nullptr) {
+			OutputDebugStringA("[MetroDev] wpn_give list: weapon reference not found (vt[4] unknown)\n");
+			return;
+		}
+
+		// Step2: 全武器を収集し、entity[+0x240]->[+0x008] から武器種別を取得
+		struct wpn_item {
+			int index;
+			char name[64];
+			char weapon_type[64];
+		};
+		const int MAX_WEAPONS = 512;
+		wpn_item* weapons = (wpn_item*)malloc(sizeof(wpn_item) * MAX_WEAPONS);
+		if (weapons == nullptr) { OutputDebugStringA("[MetroDev] wpn_give list: malloc failed\n"); return; }
+		int weapon_count = 0;
+
+		for (int i = 0; i < 0xFFFF && weapon_count < MAX_WEAPONS; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				void** vt = *(void***)ent;
+				if (vt[4] != weapon_vt4) continue;
+
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+				if (filter != nullptr && strstr(name, filter) == nullptr) continue;
+
+				// 武器種別を取得: entity[+0x240] -> pointer -> [+0x008] -> string handle
+				const char* wtype = nullptr;
+				__try {
+					void* def_ptr = *(void**)((BYTE*)ent + 0x240);
+					if (def_ptr != nullptr) {
+						DWORD type_handle = *(DWORD*)((BYTE*)def_ptr + 0x008);
+						if (type_handle != 0) wtype = resolve_str_handle(type_handle);
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+				weapons[weapon_count].index = i;
+				strncpy(weapons[weapon_count].name, name, 63);
+				weapons[weapon_count].name[63] = '\0';
+				if (wtype != nullptr) {
+					strncpy(weapons[weapon_count].weapon_type, wtype, 63);
+				} else {
+					strncpy(weapons[weapon_count].weapon_type, "(unknown)", 63);
+				}
+				weapons[weapon_count].weapon_type[63] = '\0';
+				weapon_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		// Step3: weapon_type → name 順でソート
+		for (int a = 0; a < weapon_count - 1; a++) {
+			for (int b = a + 1; b < weapon_count; b++) {
+				int cmp = strcmp(weapons[a].weapon_type, weapons[b].weapon_type);
+				if (cmp == 0) cmp = strcmp(weapons[a].name, weapons[b].name);
+				if (cmp > 0) {
+					wpn_item tmp = weapons[a];
+					weapons[a] = weapons[b];
+					weapons[b] = tmp;
+				}
+			}
+		}
+
+		// Step4: グループ化して出力
+		int total = 0;
+		int type_count = 0;
+		char current_type[64] = "";
+		for (int w = 0; w < weapon_count; w++) {
+			if (strcmp(weapons[w].weapon_type, current_type) != 0) {
+				strncpy(current_type, weapons[w].weapon_type, 63);
+				current_type[63] = '\0';
+				type_count++;
+				int group_size = 0;
+				for (int c = w; c < weapon_count && strcmp(weapons[c].weapon_type, current_type) == 0; c++) group_size++;
+				sprintf(buf, "[MetroDev] === %s (%d) ===\n", current_type, group_size);
+				OutputDebugStringA(buf);
+			}
+			sprintf(buf, "[MetroDev]   [%d] %s\n", weapons[w].index, weapons[w].name);
+			OutputDebugStringA(buf);
+			total++;
+		}
+		sprintf(buf, "[MetroDev] wpn_give list: %d weapons in %d types\n", total, type_count);
+		OutputDebugStringA(buf);
+
+		free(weapons);
 		return;
 	}
 
