@@ -30,6 +30,17 @@ uconsole_command_exodus_vtbl refly_vftable_exodus;
 uconsole_command_exodus_vtbl civ_off_vftable_exodus;
 uconsole_command_exodus_vtbl civ_restore_vftable_exodus;
 uconsole_command_exodus_vtbl wpn_give_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_ak_74_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_ashot_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_flamethrower_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_gatling_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_helsing_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_revolver_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_tihar_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_ubludok_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_uboynicheg_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_ventil_vftable_exodus;
+uconsole_command_exodus_vtbl wpn_give_vyhlop_vftable_exodus;
 
 cmd_mask_struct_a1 g_god_new;
 cmd_mask_struct_a1 g_global_god_new;
@@ -43,6 +54,17 @@ cmd_executor_struct_a1 signal_new;
 cmd_executor_struct_a1 civ_off_new;
 cmd_executor_struct_a1 civ_restore_new;
 cmd_executor_struct_a1 wpn_give_new;
+cmd_executor_struct_a1 wpn_give_ak_74_new;
+cmd_executor_struct_a1 wpn_give_ashot_new;
+cmd_executor_struct_a1 wpn_give_flamethrower_new;
+cmd_executor_struct_a1 wpn_give_gatling_new;
+cmd_executor_struct_a1 wpn_give_helsing_new;
+cmd_executor_struct_a1 wpn_give_revolver_new;
+cmd_executor_struct_a1 wpn_give_tihar_new;
+cmd_executor_struct_a1 wpn_give_ubludok_new;
+cmd_executor_struct_a1 wpn_give_uboynicheg_new;
+cmd_executor_struct_a1 wpn_give_ventil_new;
+cmd_executor_struct_a1 wpn_give_vyhlop_new;
 
 DWORD64 igame_level_signal;
 _unknown_exodus unknown_exodus;
@@ -658,6 +680,18 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 		OutputDebugStringA(buf);
 	}
 }
+
+void __fastcall RestoreCommands::wpn_give_ak_74_execute(void* _this, const char* args)      { wpn_give_execute(_this, "ak_74_base"); }
+void __fastcall RestoreCommands::wpn_give_ashot_execute(void* _this, const char* args)      { wpn_give_execute(_this, "ashot_base"); }
+void __fastcall RestoreCommands::wpn_give_flamethrower_execute(void* _this, const char* args) { wpn_give_execute(_this, "flamethrower_base"); }
+void __fastcall RestoreCommands::wpn_give_gatling_execute(void* _this, const char* args)    { wpn_give_execute(_this, "gatling_base"); }
+void __fastcall RestoreCommands::wpn_give_helsing_execute(void* _this, const char* args)    { wpn_give_execute(_this, "helsing_base"); }
+void __fastcall RestoreCommands::wpn_give_revolver_execute(void* _this, const char* args)   { wpn_give_execute(_this, "revolver_base"); }
+void __fastcall RestoreCommands::wpn_give_tihar_execute(void* _this, const char* args)      { wpn_give_execute(_this, "tihar_base"); }
+void __fastcall RestoreCommands::wpn_give_ubludok_execute(void* _this, const char* args)    { wpn_give_execute(_this, "ubludok_base"); }
+void __fastcall RestoreCommands::wpn_give_uboynicheg_execute(void* _this, const char* args) { wpn_give_execute(_this, "uboynicheg_base"); }
+void __fastcall RestoreCommands::wpn_give_ventil_execute(void* _this, const char* args)     { wpn_give_execute(_this, "ventil_base"); }
+void __fastcall RestoreCommands::wpn_give_vyhlop_execute(void* _this, const char* args)     { wpn_give_execute(_this, "vyhlop_base"); }
 #endif
 
 #ifdef _WIN64
@@ -822,6 +856,28 @@ void RestoreCommands::cmd_register_commands() {
 		if (Utils::isExodus() && Utils::g_entities != nullptr) {
 			wpn_give_new.construct(&wpn_give_vftable_exodus, pCmd1->__vftable, "wpn_give", &wpn_give_execute);
 			cu.command_add(&wpn_give_new);
+			wpn_give_ak_74_new.construct(&wpn_give_ak_74_vftable_exodus, pCmd1->__vftable, "wpn_give_ak_74", &wpn_give_ak_74_execute);
+			cu.command_add(&wpn_give_ak_74_new);
+			wpn_give_ashot_new.construct(&wpn_give_ashot_vftable_exodus, pCmd1->__vftable, "wpn_give_ashot", &wpn_give_ashot_execute);
+			cu.command_add(&wpn_give_ashot_new);
+			wpn_give_flamethrower_new.construct(&wpn_give_flamethrower_vftable_exodus, pCmd1->__vftable, "wpn_give_flamethrower", &wpn_give_flamethrower_execute);
+			cu.command_add(&wpn_give_flamethrower_new);
+			wpn_give_gatling_new.construct(&wpn_give_gatling_vftable_exodus, pCmd1->__vftable, "wpn_give_gatling", &wpn_give_gatling_execute);
+			cu.command_add(&wpn_give_gatling_new);
+			wpn_give_helsing_new.construct(&wpn_give_helsing_vftable_exodus, pCmd1->__vftable, "wpn_give_helsing", &wpn_give_helsing_execute);
+			cu.command_add(&wpn_give_helsing_new);
+			wpn_give_revolver_new.construct(&wpn_give_revolver_vftable_exodus, pCmd1->__vftable, "wpn_give_revolver", &wpn_give_revolver_execute);
+			cu.command_add(&wpn_give_revolver_new);
+			wpn_give_tihar_new.construct(&wpn_give_tihar_vftable_exodus, pCmd1->__vftable, "wpn_give_tihar", &wpn_give_tihar_execute);
+			cu.command_add(&wpn_give_tihar_new);
+			wpn_give_ubludok_new.construct(&wpn_give_ubludok_vftable_exodus, pCmd1->__vftable, "wpn_give_ubludok", &wpn_give_ubludok_execute);
+			cu.command_add(&wpn_give_ubludok_new);
+			wpn_give_uboynicheg_new.construct(&wpn_give_uboynicheg_vftable_exodus, pCmd1->__vftable, "wpn_give_uboynicheg", &wpn_give_uboynicheg_execute);
+			cu.command_add(&wpn_give_uboynicheg_new);
+			wpn_give_ventil_new.construct(&wpn_give_ventil_vftable_exodus, pCmd1->__vftable, "wpn_give_ventil", &wpn_give_ventil_execute);
+			cu.command_add(&wpn_give_ventil_new);
+			wpn_give_vyhlop_new.construct(&wpn_give_vyhlop_vftable_exodus, pCmd1->__vftable, "wpn_give_vyhlop", &wpn_give_vyhlop_execute);
+			cu.command_add(&wpn_give_vyhlop_new);
 		}
 	}
 #else
