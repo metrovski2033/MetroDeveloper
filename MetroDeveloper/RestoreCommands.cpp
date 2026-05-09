@@ -32,6 +32,8 @@ uconsole_command_exodus_vtbl civ_restore_vftable_exodus;
 uconsole_command_exodus_vtbl wpn_give_vftable_exodus;
 uconsole_command_exodus_vtbl wpn_give_pickup_hook_vftable_exodus;
 uconsole_command_exodus_vtbl wpn_give_attach_hook_vftable_exodus;
+uconsole_command_exodus_vtbl find_str_vftable_exodus;
+uconsole_command_exodus_vtbl dump_mem_vftable_exodus;
 
 cmd_mask_struct_a1 g_god_new;
 cmd_mask_struct_a1 g_global_god_new;
@@ -47,6 +49,8 @@ cmd_executor_struct_a1 civ_restore_new;
 cmd_executor_struct_a1 wpn_give_new;
 cmd_executor_struct_a1 wpn_give_pickup_hook_new;
 cmd_executor_struct_a1 wpn_give_attach_hook_new;
+cmd_executor_struct_a1 find_str_new;
+cmd_executor_struct_a1 dump_mem_new;
 
 DWORD64 igame_level_signal;
 _unknown_exodus unknown_exodus;
@@ -94,6 +98,14 @@ static bool entity_attach_monitor = false;
 static _pickup_wrapper pickup_wrapper_orig = nullptr;
 static bool pickup_monitor = false;
 static bool pickup_in_progress = false;
+
+// DEZP handler hook for save preset injection
+typedef int(__fastcall* _dezp_handler)(void* output, void* stream, int flag);
+static _dezp_handler dezp_handler_orig = nullptr;
+static BYTE* full_preset_block_data = nullptr;
+static SIZE_T full_preset_block_size = 0;
+static bool dezp_preset_patched = false;
+static const BYTE PRESET_MARKER[8] = { 0xA8, 0x61, 0x00, 0x00, 0xA8, 0x61, 0x00, 0x00 };
 
 struct attach_log_entry {
 	void* parent_component;
@@ -170,7 +182,12 @@ void __fastcall hook_igame_level_signal_ex(void* _unused, void** str_shared, voi
 			name ? name : "(null)", sig, parent, relatives, _unknown);
 		OutputDebugStringA(buf);
 
-		if (wpn_callstack_dump && name != nullptr && strstr(name, "trade_enable") != nullptr) {
+		if (wpn_callstack_dump && name != nullptr &&
+			(strstr(name, "trade_enable") != nullptr ||
+			 strstr(name, "show_hint_menu") != nullptr ||
+			 strstr(name, "pickup") != nullptr ||
+			 strstr(name, "acquire") != nullptr ||
+			 strstr(name, "got_") != nullptr)) {
 			MODULEINFO mod;
 			GetModuleInformation(GetCurrentProcess(), GetModuleHandle(NULL), &mod, sizeof(mod));
 			DWORD64 base = (DWORD64)mod.lpBaseOfDll;
@@ -250,16 +267,135 @@ void __fastcall hook_pickup_wrapper(void* player_entity, void* weapon_entity)
 void __fastcall hook_entity_attach(void* parent_component, void** output_ptr, void** new_entity_ptr, void* context)
 {
 	if (entity_attach_monitor) {
-		char buf[512];
+		char buf[1024];
 		void* new_ent = (new_entity_ptr != nullptr) ? *new_entity_ptr : nullptr;
 		BYTE ctx_byte = 0;
 		__try { if (context) ctx_byte = *(BYTE*)context; } __except(EXCEPTION_EXECUTE_HANDLER) {}
 		void* pre_180 = nullptr;
 		__try { pre_180 = *(void**)((BYTE*)parent_component + 0x180); } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-		sprintf(buf, "[MetroDev] ATTACH: parent=%p out=%p ent=%p ctx=0x%02X [parent+180]=%p\n",
-			parent_component, output_ptr, new_ent, ctx_byte, pre_180);
+		const char* parent_name = nullptr;
+		const char* ent_name = nullptr;
+		const char* ent_type = nullptr;
+		const char* pre180_name = nullptr;
+		const char* pre180_type = nullptr;
+		__try {
+			DWORD h = *(DWORD*)((BYTE*)parent_component + 0x238);
+			if (h != 0) parent_name = resolve_str_handle(h);
+		} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		if (new_ent != nullptr) {
+			__try {
+				DWORD h = *(DWORD*)((BYTE*)new_ent + 0x238);
+				if (h != 0) ent_name = resolve_str_handle(h);
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			__try {
+				void* def = *(void**)((BYTE*)new_ent + 0x240);
+				if (def != nullptr) {
+					DWORD th = *(DWORD*)((BYTE*)def + 0x008);
+					if (th != 0) ent_type = resolve_str_handle(th);
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+		if (pre_180 != nullptr) {
+			__try {
+				DWORD h = *(DWORD*)((BYTE*)pre_180 + 0x238);
+				if (h != 0) pre180_name = resolve_str_handle(h);
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			__try {
+				void* def = *(void**)((BYTE*)pre_180 + 0x240);
+				if (def != nullptr) {
+					DWORD th = *(DWORD*)((BYTE*)def + 0x008);
+					if (th != 0) pre180_type = resolve_str_handle(th);
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		sprintf(buf, "[MetroDev] ATTACH: parent=%p('%s') ent=%p('%s' t='%s') ctx=0x%02X [+180]=%p('%s' t='%s')\n",
+			parent_component, parent_name ? parent_name : "?",
+			new_ent, ent_name ? ent_name : "?", ent_type ? ent_type : "?",
+			ctx_byte,
+			pre_180, pre180_name ? pre180_name : "?", pre180_type ? pre180_type : "?");
 		OutputDebugStringA(buf);
+
+		static void* last_scanned_ent = nullptr;
+		if (new_ent != nullptr && (ctx_byte == 0x04 || ctx_byte == 0x08) && new_ent != last_scanned_ent) {
+			last_scanned_ent = new_ent;
+			sprintf(buf, "[MetroDev] === ATTACH ENT SCAN (ctx=0x%02X, ent=%p, parent=%p) ===\n", ctx_byte, new_ent, parent_component);
+			OutputDebugStringA(buf);
+			OutputDebugStringA("[MetroDev] --- ENT string handles 0x000-0x400 ---\n");
+			for (int off = 0; off < 0x400; off += 4) {
+				__try {
+					DWORD h = *(DWORD*)((BYTE*)new_ent + off);
+					if (h != 0 && h < 0x100000) {
+						const char* s = resolve_str_handle(h);
+						if (s != nullptr && s[0] != '\0') {
+							sprintf(buf, "[MetroDev]   ent+0x%03X: handle=0x%08X -> '%s'\n", off, h, s);
+							OutputDebugStringA(buf);
+						}
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			}
+			OutputDebugStringA("[MetroDev] --- ENT pointer deref scan ---\n");
+			for (int off = 0; off < 0x400; off += 8) {
+				__try {
+					void* ptr = *(void**)((BYTE*)new_ent + off);
+					if (ptr != nullptr && (DWORD64)ptr > 0x10000 && (DWORD64)ptr < 0x00007FFFFFFFFFFF) {
+						for (int sub = 0; sub <= 0x10; sub += 4) {
+							__try {
+								DWORD h = *(DWORD*)((BYTE*)ptr + sub);
+								if (h != 0 && h < 0x100000) {
+									const char* s = resolve_str_handle(h);
+									if (s != nullptr && s[0] != '\0') {
+										sprintf(buf, "[MetroDev]   ent+0x%03X->+0x%02X: handle=0x%08X -> '%s'\n", off, sub, h, s);
+										OutputDebugStringA(buf);
+									}
+								}
+							} __except(EXCEPTION_EXECUTE_HANDLER) {}
+						}
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			}
+			// === PARENT (weapon) scan: 武器の attach 子リストを探す ===
+			if (parent_component != nullptr) {
+				OutputDebugStringA("[MetroDev] --- PARENT pointer scan (weapon -> attach children list candidates) ---\n");
+				// 親の +0x000-0x800 範囲で 8byte 整列ポインタを走査
+				for (int off = 0; off < 0x800; off += 8) {
+					__try {
+						void* ptr = *(void**)((BYTE*)parent_component + off);
+						if (ptr == nullptr) continue;
+						if ((DWORD64)ptr <= 0x10000 || (DWORD64)ptr >= 0x00007FFFFFFFFFFF) continue;
+						// ptr が指す先の +0x238 (entity 名ハンドル) で entity か判定
+						__try {
+							DWORD h0 = *(DWORD*)((BYTE*)ptr + 0x238);
+							if (h0 != 0 && h0 < 0x100000) {
+								const char* s0 = resolve_str_handle(h0);
+								if (s0 != nullptr && s0[0] == '$') {
+									sprintf(buf, "[MetroDev]   parent+0x%03X -> ENTITY %p name='%s'\n", off, ptr, s0);
+									OutputDebugStringA(buf);
+								}
+							}
+						} __except(EXCEPTION_EXECUTE_HANDLER) {}
+						// ptr が array なら最初のいくつかのポインタも entity 化判定
+						for (int idx = 0; idx < 8; idx++) {
+							__try {
+								void* arr_ptr = *(void**)((BYTE*)ptr + idx * 8);
+								if (arr_ptr == nullptr) continue;
+								if ((DWORD64)arr_ptr <= 0x10000 || (DWORD64)arr_ptr >= 0x00007FFFFFFFFFFF) continue;
+								DWORD h1 = *(DWORD*)((BYTE*)arr_ptr + 0x238);
+								if (h1 != 0 && h1 < 0x100000) {
+									const char* s1 = resolve_str_handle(h1);
+									if (s1 != nullptr && s1[0] == '$') {
+										sprintf(buf, "[MetroDev]   parent+0x%03X[arr+%d] -> ENTITY %p name='%s'\n", off, idx, arr_ptr, s1);
+										OutputDebugStringA(buf);
+									}
+								}
+							} __except(EXCEPTION_EXECUTE_HANDLER) { break; }
+						}
+					} __except(EXCEPTION_EXECUTE_HANDLER) {}
+				}
+			}
+			OutputDebugStringA("[MetroDev] === END ATTACH ENT SCAN ===\n");
+		}
 	}
 
 	if (pickup_monitor) {
@@ -304,6 +440,258 @@ DWORD igame_level_signal;
 cmd_executor_struct_2033 signal_2033;
 cmd_executor_struct_ll signal_ll;
 #endif
+
+static void load_full_preset_block()
+{
+	FILE* f = fopen("presets_full.bin", "rb");
+	if (f == nullptr) {
+		OutputDebugStringA("[MetroDev] DEZP: presets_full.bin not found\n");
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	long fsize = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (fsize < 12 || fsize > 1024 * 1024) {
+		OutputDebugStringA("[MetroDev] DEZP: presets_full.bin invalid size\n");
+		fclose(f);
+		return;
+	}
+	full_preset_block_data = (BYTE*)malloc(fsize);
+	if (full_preset_block_data == nullptr) { fclose(f); return; }
+	fread(full_preset_block_data, 1, fsize, f);
+	fclose(f);
+	full_preset_block_size = (SIZE_T)fsize;
+
+	if (memcmp(full_preset_block_data, PRESET_MARKER, 8) != 0) {
+		OutputDebugStringA("[MetroDev] DEZP: presets_full.bin bad marker\n");
+		free(full_preset_block_data);
+		full_preset_block_data = nullptr;
+		return;
+	}
+	char msg[128];
+	sprintf(msg, "[MetroDev] DEZP: loaded presets_full.bin (%llu bytes, count=%u)\n",
+		(unsigned long long)full_preset_block_size, *(DWORD*)(full_preset_block_data + 8));
+	OutputDebugStringA(msg);
+}
+
+static int dezp_call_count = 0;
+
+int __fastcall hook_dezp_handler(void* output, void* stream, int flag)
+{
+	int result = dezp_handler_orig(output, stream, flag);
+	int call_num = ++dezp_call_count;
+
+	__try {
+		if (result != 1 || *(DWORD*)output != 2) return result;
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return result; }
+
+	__try {
+		char dbg[512];
+		sprintf(dbg, "[MetroDev] DEZP #%d: [+10]=%p [+18]=0x%X [+20]=%p [+28]=0x%X [+30]=%p [+38]=0x%X flag=%d patched=%d\n",
+			call_num,
+			*(void**)((BYTE*)output + 0x10),
+			*(DWORD*)((BYTE*)output + 0x18),
+			*(void**)((BYTE*)output + 0x20),
+			*(DWORD*)((BYTE*)output + 0x28),
+			*(void**)((BYTE*)output + 0x30),
+			*(DWORD*)((BYTE*)output + 0x38),
+			flag, (int)dezp_preset_patched);
+		OutputDebugStringA(dbg);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+	if (full_preset_block_data == nullptr || dezp_preset_patched)
+		return result;
+
+	int slots[] = { 0x10, 0x20, 0x30 };
+	int size_offsets[] = { 0x18, 0x28, 0x38 };
+	for (int si = 0; si < 3; si++) {
+		int slot_off = slots[si];
+		BYTE* meta_struct = nullptr;
+		__try { meta_struct = *(BYTE**)((BYTE*)output + slot_off); } __except (EXCEPTION_EXECUTE_HANDLER) { continue; }
+		if (meta_struct == nullptr) continue;
+
+		// 実データバッファは構造体[+0x18]に格納されている (struct allocated by 0x547830)
+		BYTE* buf = nullptr;
+		__try { buf = *(BYTE**)(meta_struct + 0x18); } __except (EXCEPTION_EXECUTE_HANDLER) { continue; }
+		if (buf == nullptr) continue;
+
+		DWORD chunk_size = 0;
+		__try { chunk_size = *(DWORD*)((BYTE*)output + size_offsets[si]); } __except (EXCEPTION_EXECUTE_HANDLER) { continue; }
+
+		SIZE_T buf_size = (SIZE_T)chunk_size;
+		if (buf_size < 16) continue;
+
+		char smsg[512];
+		sprintf(smsg, "[MetroDev] DEZP #%d: scan slot+0x%X meta=%p data=%p chunk_size=0x%X\n",
+			call_num, slot_off, meta_struct, buf, chunk_size);
+		OutputDebugStringA(smsg);
+
+		// chunk1の先頭128バイトをHEXダンプ（LZ4展開結果がPythonと一致するか確認用）
+		if (slot_off == 0x20 && buf_size >= 128) {
+			char hex[400];
+			for (int row = 0; row < 8; row++) {
+				int off = 0;
+				off += sprintf(hex + off, "[MetroDev] DEZP head[0x%02X]: ", row * 16);
+				for (int c = 0; c < 16; c++) {
+					off += sprintf(hex + off, "%02X ", buf[row * 16 + c]);
+				}
+				sprintf(hex + off, "\n");
+				OutputDebugStringA(hex);
+			}
+		}
+
+		// chunk1 全体をファイルに書き出す（FULL/EMPTY save の差分比較用）
+		// ファイル名にサイズ+先頭8バイトを含めて、同じデータなら上書きされる
+		if (buf_size >= 16) {
+			char fn[256];
+			int chunk_idx = (slot_off == 0x10) ? 0 : (slot_off == 0x20) ? 1 : 2;
+			sprintf(fn, "dump_chunk%d_size%X_h%02X%02X%02X%02X%02X%02X%02X%02X.bin",
+				chunk_idx, chunk_size,
+				buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+			// 既存ファイルがあればスキップ（同じデータの再ダンプを避ける）
+			DWORD attrs = GetFileAttributesA(fn);
+			if (attrs == INVALID_FILE_ATTRIBUTES) {
+				HANDLE hf = CreateFileA(fn, GENERIC_WRITE, 0, nullptr,
+					CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+				if (hf != INVALID_HANDLE_VALUE) {
+					DWORD written = 0;
+					WriteFile(hf, buf, chunk_size, &written, nullptr);
+					CloseHandle(hf);
+					char msg[400];
+					sprintf(msg, "[MetroDev] DEZP: dumped chunk%d -> %s (%u/%u bytes)\n",
+						chunk_idx, fn, written, chunk_size);
+					OutputDebugStringA(msg);
+				} else {
+					char msg[400];
+					sprintf(msg, "[MetroDev] DEZP: dump CreateFile failed err=%lu fn=%s\n",
+						GetLastError(), fn);
+					OutputDebugStringA(msg);
+				}
+			} else {
+				char msg[400];
+				sprintf(msg, "[MetroDev] DEZP: chunk%d dump skipped (file exists): %s\n", chunk_idx, fn);
+				OutputDebugStringA(msg);
+			}
+		}
+
+		// 文字列ベースの検索: "weapon_item_preset" を chunk1 全域で探す
+		if (slot_off == 0x20) {
+			static const char kStrA[] = "weapon_item_preset";
+			static const char kStrB[] = "weapon_silencer";
+			static const char kStrC[] = "weapon_collimator";
+			int hits_a = 0, hits_b = 0, hits_c = 0;
+			SIZE_T first_a = (SIZE_T)-1, first_b = (SIZE_T)-1, first_c = (SIZE_T)-1;
+			__try {
+				for (SIZE_T i = 0; i + sizeof(kStrA) <= buf_size; i++) {
+					if (buf[i] == 'w') {
+						if (memcmp(buf + i, kStrA, sizeof(kStrA) - 1) == 0) {
+							if (first_a == (SIZE_T)-1) first_a = i;
+							hits_a++;
+						}
+						if (i + sizeof(kStrB) <= buf_size && memcmp(buf + i, kStrB, sizeof(kStrB) - 1) == 0) {
+							if (first_b == (SIZE_T)-1) first_b = i;
+							hits_b++;
+						}
+						if (i + sizeof(kStrC) <= buf_size && memcmp(buf + i, kStrC, sizeof(kStrC) - 1) == 0) {
+							if (first_c == (SIZE_T)-1) first_c = i;
+							hits_c++;
+						}
+					}
+				}
+			} __except (EXCEPTION_EXECUTE_HANDLER) {
+				OutputDebugStringA("[MetroDev] DEZP string search: exception\n");
+			}
+			sprintf(smsg, "[MetroDev] DEZP str: weapon_item_preset hits=%d first=0x%llX  silencer hits=%d first=0x%llX  collimator hits=%d first=0x%llX\n",
+				hits_a, (unsigned long long)first_a,
+				hits_b, (unsigned long long)first_b,
+				hits_c, (unsigned long long)first_c);
+			OutputDebugStringA(smsg);
+
+			// 最初の "weapon_item_preset" 周辺 ±256 バイトをダンプ（マーカー探索のヒント）
+			if (first_a != (SIZE_T)-1) {
+				SIZE_T from = (first_a >= 64) ? first_a - 64 : 0;
+				SIZE_T to = first_a + 64;
+				if (to > buf_size) to = buf_size;
+				char hex[400];
+				int off = 0;
+				off += sprintf(hex + off, "[MetroDev] DEZP near-str@0x%llX: ", (unsigned long long)from);
+				for (SIZE_T p = from; p < to && off < 350; p++) {
+					off += sprintf(hex + off, "%02X ", buf[p]);
+				}
+				sprintf(hex + off, "\n");
+				OutputDebugStringA(hex);
+			}
+		}
+
+		// バッファ全域でマーカーのバイトパターンを検索 (chunk_size のみ使用)
+		SIZE_T scan_size = buf_size;
+
+		__try {
+			int a8_count = 0;
+			for (SIZE_T i = 0; i + 12 <= scan_size; i++) {
+				if (buf[i] != 0xA8) continue;
+				a8_count++;
+				if (memcmp(buf + i, PRESET_MARKER, 8) != 0) continue;
+
+				DWORD old_count = *(DWORD*)(buf + i + 8);
+				if (old_count > 50000) continue;
+
+				SIZE_T old_block_end = i + 12;
+				for (DWORD j = 0; j < old_count && old_block_end < buf_size; j++) {
+					while (old_block_end < buf_size && buf[old_block_end] != 0) old_block_end++;
+					old_block_end++;
+				}
+				SIZE_T old_block_size = old_block_end - i;
+
+				char msg[256];
+				sprintf(msg, "[MetroDev] DEZP #%d: FOUND marker at slot+0x%X off=0x%llX count=%u oldblock=%llu\n",
+					call_num, slot_off, (unsigned long long)i, old_count, (unsigned long long)old_block_size);
+				OutputDebugStringA(msg);
+
+				if (old_block_size == full_preset_block_size) {
+					memcpy(buf + i, full_preset_block_data, full_preset_block_size);
+					sprintf(msg, "[MetroDev] DEZP: in-place replaced (%llu bytes)\n",
+						(unsigned long long)full_preset_block_size);
+					OutputDebugStringA(msg);
+				} else {
+					SIZE_T data_after_old = buf_size - (i + old_block_size);
+					SIZE_T new_buf_size = i + full_preset_block_size + data_after_old;
+					BYTE* new_buf = (BYTE*)VirtualAlloc(NULL, new_buf_size,
+						MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+					if (new_buf == nullptr) {
+						OutputDebugStringA("[MetroDev] DEZP: VirtualAlloc failed\n");
+						return result;
+					}
+					memcpy(new_buf, buf, i);
+					memcpy(new_buf + i, full_preset_block_data, full_preset_block_size);
+					memcpy(new_buf + i + full_preset_block_size,
+						buf + i + old_block_size, data_after_old);
+
+					*(BYTE**)((BYTE*)output + slot_off) = new_buf;
+					*(DWORD*)((BYTE*)output + size_offsets[si]) = (DWORD)new_buf_size;
+
+					sprintf(msg, "[MetroDev] DEZP: realloc %llu -> %llu (+%lld) new_buf=%p\n",
+						(unsigned long long)buf_size, (unsigned long long)new_buf_size,
+						(long long)(new_buf_size - buf_size), new_buf);
+					OutputDebugStringA(msg);
+				}
+
+				dezp_preset_patched = true;
+				return result;
+			}
+			char done[256];
+			sprintf(done, "[MetroDev] DEZP #%d: scan done slot+0x%X a8_count=%d (no marker)\n",
+				call_num, slot_off, a8_count);
+			OutputDebugStringA(done);
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			char smsg[256];
+			sprintf(smsg, "[MetroDev] DEZP #%d: exception scanning slot+0x%X\n", call_num, slot_off);
+			OutputDebugStringA(smsg);
+		}
+	}
+
+	return result;
+}
 
 RestoreCommands::RestoreCommands()
 {
@@ -497,6 +885,31 @@ RestoreCommands::RestoreCommands()
 					char buf[128];
 					sprintf(buf, "[MetroDev] wpn_give: g_equip_actor_ptr=%p\n", g_equip_actor_ptr);
 					OutputDebugStringA(buf);
+				}
+			}
+
+			// DEZP handler: セーブデータ展開時のプリセット注入フック
+			{
+				DWORD64 dezp_body = FindPatternInEXE(
+					"\x48\x63\x42\x20\x48\x8B\xDA\x48\x8B\xF9\x45\x8B\xF8"
+					"\x8D\x48\x04\x89\x4A\x20\x48\x8B\xD0\x48\x03\x53\x18"
+					"\x81\x3A\x44\x45\x5A\x50",
+					"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+				if (dezp_body != NULL) {
+					DWORD64 dezp_fn = dezp_body - 0x1C;
+					load_full_preset_block();
+
+					MH_STATUS mhs = MH_CreateHook((void*)dezp_fn, (void*)&hook_dezp_handler, (void**)&dezp_handler_orig);
+					if (mhs == MH_OK) {
+						MH_EnableHook((void*)dezp_fn);
+						char msg[128];
+						sprintf(msg, "[MetroDev] DEZP: handler hooked at %p\n", (void*)dezp_fn);
+						OutputDebugStringA(msg);
+					} else {
+						char msg[128];
+						sprintf(msg, "[MetroDev] DEZP: MH_CreateHook failed (%d)\n", mhs);
+						OutputDebugStringA(msg);
+					}
 				}
 			}
 
@@ -740,7 +1153,7 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 {
 	while (*args == ' ') args++;
 	if (*args == '\0') {
-		OutputDebugStringA("[MetroDev] wpn_give: usage: wpn_give <name> | list [prefix] | scan | dump | debug\n");
+		OutputDebugStringA("[MetroDev] wpn_give: usage: wpn_give <name> | list [prefix] | presets [filter] | presets give_all | presetscan [N|all] | defscan [N] | scan | dump | debug\n");
 		return;
 	}
 
@@ -1481,6 +1894,515 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 		return;
 	}
 
+	// presets サブコマンド
+	if (strncmp(args, "presets", 7) == 0 && (args[7] == '\0' || args[7] == ' ')) {
+		const char* sub = args + 7;
+		while (*sub == ' ') sub++;
+
+		if (strncmp(sub, "dezp_status", 11) == 0) {
+			sprintf(buf, "[MetroDev] DEZP: hook=%s block=%s(%llu bytes) patched=%s\n",
+				dezp_handler_orig ? "ON" : "OFF",
+				full_preset_block_data ? "loaded" : "none",
+				(unsigned long long)full_preset_block_size,
+				dezp_preset_patched ? "YES" : "NO");
+			OutputDebugStringA(buf);
+			return;
+		}
+		if (strncmp(sub, "dezp_reset", 10) == 0) {
+			dezp_preset_patched = false;
+			OutputDebugStringA("[MetroDev] DEZP: patch flag reset, will patch on next save load\n");
+			return;
+		}
+
+		if (strncmp(sub, "give_all", 8) == 0) {
+			if (g_equip_actor_ptr == nullptr) {
+				OutputDebugStringA("[MetroDev] presets give_all: g_equip_actor_ptr not initialized\n");
+				return;
+			}
+			void* actor = *g_equip_actor_ptr;
+			if (actor == nullptr) {
+				OutputDebugStringA("[MetroDev] presets give_all: equip actor is null\n");
+				return;
+			}
+			if (queue_add_weapon_fn == nullptr) {
+				OutputDebugStringA("[MetroDev] presets give_all: queue_add not found\n");
+				return;
+			}
+
+			int batch_size = 0;
+			int batch_offset = 0;
+			const char* barg = sub + 8;
+			while (*barg == ' ') barg++;
+			if (*barg != '\0') {
+				sscanf(barg, "%d %d", &batch_size, &batch_offset);
+			}
+
+			FILE* fGive = fopen("wpn_give_give_all.log", "w");
+			if (fGive == nullptr) OutputDebugStringA("[MetroDev] presets give_all: failed to open wpn_give_give_all.log\n");
+
+			int total_match = 0;
+			int given = 0;
+			int n_empty = 0, n_broken = 0, n_garbage = 0, n_valid = 0;
+			int failed = 0;
+			bool limit_reached = false;
+			int preset_idx = 0;
+			for (int i = 0; i < 0xFFFF; i++) {
+				void* ent = entity_array[i];
+				if (ent == nullptr) continue;
+				__try {
+					DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+					if (handle == 0) continue;
+					const char* name = resolve_str_handle(handle);
+					if (name == nullptr) continue;
+					if (strncmp(name, "$weapon_item_preset_", 20) != 0) continue;
+
+					total_match++;
+
+					// カテゴリ分類 (フィルタはせず、ログのみ)
+					const char* category = "valid";
+					DWORD uid = 0, v230 = 0;
+					void* def_slot = nullptr;
+					const char* s230 = nullptr;
+
+					__try { uid = *(DWORD*)((BYTE*)ent + 0x28C); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+					__try { def_slot = *(void**)((BYTE*)ent + 0x180); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+					__try { v230 = *(DWORD*)((BYTE*)ent + 0x230); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+					if (v230 != 0 && v230 < 0x100000) {
+						__try {
+							const char* s = resolve_str_handle(v230);
+							if (s != nullptr && s[0] != '\0' && strlen(s) >= 3 && strlen(s) < 80) s230 = s;
+						} __except(EXCEPTION_EXECUTE_HANDLER) {}
+					}
+
+					if (uid == 0xFFFFFFFF)        { category = "empty";   n_empty++; }
+					else if (def_slot == nullptr) { category = "broken";  n_broken++; }
+					else if (s230 != nullptr)     { category = "garbage"; n_garbage++; }
+					else                          {                       n_valid++; }
+
+					// action 判定 (フィルタなし: queue or skip(offset/limit))
+					const char* action = "queued";
+					if (preset_idx < batch_offset) {
+						action = "skipped(offset)";
+					} else if (batch_size > 0 && given >= batch_size) {
+						action = "skipped(limit)";
+						limit_reached = true;
+					}
+
+					DWORD exc_code = 0;
+					int result = 0;
+					if (strcmp(action, "queued") == 0) {
+						__try {
+							result = queue_add_weapon_fn(actor, (unsigned short)i, nullptr, 0, 0);
+							given++;
+						} __except(exc_code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+							failed++;
+						}
+					}
+
+					if (fGive != nullptr) {
+						fprintf(fGive, "[%d] action=%-15s cat=%-7s name=%s uid=%X +180=%p +230=%X%s%s%s",
+							i, action, category, name, uid, def_slot, v230,
+							s230 ? "(" : "", s230 ? s230 : "", s230 ? ")" : "");
+						if (strcmp(action, "queued") == 0) {
+							fprintf(fGive, " exc=%X result=%d", exc_code, result);
+						}
+						fprintf(fGive, "\n");
+						fflush(fGive);
+					}
+					preset_idx++;
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			}
+
+			if (fGive != nullptr) {
+				fprintf(fGive, "\n=== summary ===\ntotal_match=%d queued=%d failed=%d (cats: empty=%d broken=%d garbage=%d valid=%d) batch=%d offset=%d limit_reached=%d\n",
+					total_match, given, failed, n_empty, n_broken, n_garbage, n_valid, batch_size, batch_offset, limit_reached ? 1 : 0);
+				fclose(fGive);
+			}
+
+			sprintf(buf, "[MetroDev] presets give_all: total=%d queued=%d (empty=%d broken=%d garbage=%d valid=%d) failed=%d offset=%d -> wpn_give_give_all.log\n",
+				total_match, given, n_empty, n_broken, n_garbage, n_valid, failed, batch_offset);
+			OutputDebugStringA(buf);
+			return;
+		}
+
+		// presets (引数なし/フィルタ): 一覧をファイルに出力
+		const char* filter = (*sub != '\0') ? sub : nullptr;
+
+		struct preset_item {
+			int index;
+			char name[64];
+			char preset_type[64];
+		};
+		const int MAX_PRESETS = 1024;
+		preset_item* presets = (preset_item*)malloc(sizeof(preset_item) * MAX_PRESETS);
+		if (presets == nullptr) { OutputDebugStringA("[MetroDev] wpn_give presets: malloc failed\n"); return; }
+		int preset_count = 0;
+
+		for (int i = 0; i < 0xFFFF && preset_count < MAX_PRESETS; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+				if (strncmp(name, "$weapon_item_preset_", 20) != 0 &&
+					strncmp(name, "$weapon_item_magazine_", 22) != 0) continue;
+				if (filter != nullptr && strstr(name, filter) == nullptr) continue;
+
+				const char* ptype = nullptr;
+				__try {
+					void* def_ptr = *(void**)((BYTE*)ent + 0x240);
+					if (def_ptr != nullptr) {
+						DWORD type_handle = *(DWORD*)((BYTE*)def_ptr + 0x008);
+						if (type_handle != 0) ptype = resolve_str_handle(type_handle);
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+				presets[preset_count].index = i;
+				strncpy(presets[preset_count].name, name, 63);
+				presets[preset_count].name[63] = '\0';
+				if (ptype != nullptr) {
+					strncpy(presets[preset_count].preset_type, ptype, 63);
+				} else {
+					strncpy(presets[preset_count].preset_type, "(unknown)", 63);
+				}
+				presets[preset_count].preset_type[63] = '\0';
+				preset_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		for (int a = 0; a < preset_count - 1; a++) {
+			for (int b = a + 1; b < preset_count; b++) {
+				int cmp = strcmp(presets[a].preset_type, presets[b].preset_type);
+				if (cmp == 0) cmp = strcmp(presets[a].name, presets[b].name);
+				if (cmp > 0) {
+					preset_item tmp = presets[a];
+					presets[a] = presets[b];
+					presets[b] = tmp;
+				}
+			}
+		}
+
+		FILE* fList = fopen("wpn_give_presets.log", "w");
+		if (fList == nullptr) {
+			OutputDebugStringA("[MetroDev] wpn_give presets: failed to open wpn_give_presets.log\n");
+			free(presets);
+			return;
+		}
+
+		int total = 0;
+		int type_count = 0;
+		char current_type[64] = "";
+		for (int p = 0; p < preset_count; p++) {
+			if (strcmp(presets[p].preset_type, current_type) != 0) {
+				strncpy(current_type, presets[p].preset_type, 63);
+				current_type[63] = '\0';
+				type_count++;
+				int group_size = 0;
+				for (int c = p; c < preset_count && strcmp(presets[c].preset_type, current_type) == 0; c++) group_size++;
+				fprintf(fList, "=== %s (%d) ===\n", current_type, group_size);
+			}
+			fprintf(fList, "  [%d] %s\n", presets[p].index, presets[p].name);
+			total++;
+		}
+		fprintf(fList, "\n%d presets in %d types\n", total, type_count);
+		fclose(fList);
+
+		sprintf(buf, "[MetroDev] wpn_give presets: %d presets in %d types -> wpn_give_presets.log\n", total, type_count);
+		OutputDebugStringA(buf);
+		free(presets);
+		return;
+	}
+
+	// defscan サブコマンド: preset entity の +0x180 が指す preset slot 構造体を hex dump し、
+	// DWORD毎に string handle 解決を試し、entity 間の差分オフセットを抽出。
+	// 目的: preset 設定名 (master block の 1077 件のいずれか) が slot 内のどのオフセット
+	// に格納されているかを特定する。
+	// (補足: +0x240 は共有クラス記述子で entity 間で完全一致のため、+0x180 を採用)
+	// defscan        : 既存give_allフィルタを通った最初の8件をスキャン
+	// defscan <N>    : 最大N件
+	if (strncmp(args, "defscan", 7) == 0) {
+		const char* sp = args + 7;
+		while (*sp == ' ') sp++;
+		int max_scan = 8;
+		if (*sp != '\0') max_scan = atoi(sp);
+		if (max_scan <= 0) max_scan = 8;
+		if (max_scan > 32) max_scan = 32;
+
+		const DWORD SLOT_DUMP = 0x200;
+
+		FILE* fLog = fopen("wpn_give_defscan.log", "w");
+		if (fLog == nullptr) { OutputDebugStringA("[MetroDev] defscan: failed to open log\n"); return; }
+
+		struct slot_ref { int idx; void* ent; void* slot; };
+		slot_ref refs[32];
+		int ref_count = 0;
+
+		// give_all と同じフィルタで preset entity を収集
+		for (int i = 0; i < 0xFFFF && ref_count < max_scan; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+				if (strncmp(name, "$weapon_item_preset_", 20) != 0) continue;
+				DWORD uid = *(DWORD*)((BYTE*)ent + 0x28C);
+				if (uid == 0xFFFFFFFF) continue;
+				void* slot = *(void**)((BYTE*)ent + 0x180);
+				if (slot == nullptr) continue;
+				DWORD v230 = *(DWORD*)((BYTE*)ent + 0x230);
+				if (v230 != 0 && v230 < 0x100000) {
+					const char* s230 = resolve_str_handle(v230);
+					if (s230 != nullptr && s230[0] != '\0' && strlen(s230) >= 3 && strlen(s230) < 80) continue;
+				}
+				refs[ref_count].idx = i;
+				refs[ref_count].ent = ent;
+				refs[ref_count].slot = slot;
+				ref_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		fprintf(fLog, "Collected %d preset entity slots (+0x180 deref, filter passed)\n\n", ref_count);
+
+		if (ref_count == 0) { fclose(fLog); return; }
+
+		// Step1: 各 entity の概要 + slot の最初の 0x80 を hex dump
+		for (int r = 0; r < ref_count; r++) {
+			BYTE* base_e = (BYTE*)refs[r].ent;
+			BYTE* base_s = (BYTE*)refs[r].slot;
+			DWORD v230 = 0, v28C = 0;
+			__try { v230 = *(DWORD*)(base_e + 0x230); v28C = *(DWORD*)(base_e + 0x28C); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+			fprintf(fLog, "=== [%d] ent=%p slot=%p e+230=%X e+28C=%X ===\n", refs[r].idx, refs[r].ent, refs[r].slot, v230, v28C);
+
+			for (DWORD off = 0; off < 0x80; off += 16) {
+				char line[256];
+				int pos = sprintf(line, "  +0x%03X: ", off);
+				for (int b = 0; b < 16; b++) {
+					__try { pos += sprintf(line + pos, "%02X ", base_s[off + b]); }
+					__except(EXCEPTION_EXECUTE_HANDLER) { pos += sprintf(line + pos, "?? "); }
+				}
+				pos += sprintf(line + pos, " |");
+				for (int b = 0; b < 16; b++) {
+					__try { BYTE ch = base_s[off + b]; line[pos++] = (ch >= 0x20 && ch < 0x7F) ? ch : '.'; }
+					__except(EXCEPTION_EXECUTE_HANDLER) { line[pos++] = '?'; }
+				}
+				line[pos++] = '|'; line[pos++] = '\n'; line[pos] = '\0';
+				fprintf(fLog, "%s", line);
+			}
+			fprintf(fLog, "\n");
+		}
+
+		// Step2: 全 entity 横並び DWORD 解析 (0..0x200) + string 解決
+		fprintf(fLog, "=== DWORD analysis: each row = 1 offset, columns = entities ===\n");
+		fprintf(fLog, "fmt: +OFF: [idx=v(str)] [idx=v(str)] ...   '*' marks offsets that DIFFER between entities\n\n");
+		for (DWORD off = 0; off < SLOT_DUMP; off += 4) {
+			// 全 entity で同値かチェック (差分のあるオフセットを優先表示するため)
+			DWORD v0 = 0;
+			bool all_same = true;
+			__try { v0 = *(DWORD*)((BYTE*)refs[0].slot + off); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+			for (int r = 1; r < ref_count; r++) {
+				DWORD vr = 0;
+				__try { vr = *(DWORD*)((BYTE*)refs[r].slot + off); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+				if (vr != v0) { all_same = false; break; }
+			}
+
+			fprintf(fLog, "+%03X%s:", off, all_same ? "  " : "* ");
+			for (int r = 0; r < ref_count; r++) {
+				DWORD v = 0;
+				__try { v = *(DWORD*)((BYTE*)refs[r].slot + off); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+				const char* s = nullptr;
+				__try { if (v != 0 && v < 0x200000) s = resolve_str_handle(v); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+				bool sv = (s != nullptr && s[0] != '\0' && strlen(s) >= 3 && strlen(s) < 80);
+				fprintf(fLog, " [%d=%X", refs[r].idx, v);
+				if (sv) fprintf(fLog, "(%s)", s);
+				fprintf(fLog, "]");
+			}
+			fprintf(fLog, "\n");
+		}
+
+		fclose(fLog);
+		sprintf(buf, "[MetroDev] defscan: %d slots (+0x180) -> wpn_give_defscan.log\n", ref_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
+	// presetscan サブコマンド: 複数のpreset entityのメモリをhexダンプし差分を表示
+	// presetscan        : 既存挙動（10件、ヘックスダンプ＋差分検出）
+	// presetscan <N>    : 最大N件で同上
+	// presetscan all    : 全件をコンパクト1行/件で出力（FULL/PARTIAL diff用）
+	if (strncmp(args, "presetscan", 10) == 0) {
+		const char* sp = args + 10;
+		while (*sp == ' ') sp++;
+
+		// "all" モード: 全プリセットをコンパクト1行/件で出力
+		bool full_mode = (strncmp(sp, "all", 3) == 0 && (sp[3] == '\0' || sp[3] == ' '));
+
+		int max_scan = 10;
+		if (!full_mode && *sp != '\0') max_scan = atoi(sp);
+		if (max_scan <= 0) max_scan = 10;
+
+		const DWORD DUMP_SIZE = 0x800;
+
+		const char* logname = full_mode ? "wpn_give_presetscan_all.log" : "wpn_give_presetscan.log";
+		FILE* fLog = fopen(logname, "w");
+		if (fLog == nullptr) { OutputDebugStringA("[MetroDev] presetscan: failed to open log\n"); return; }
+
+		// Step1: プリセットエンティティを収集
+		struct preset_ref { int idx; void* ent; };
+		const int MAX_REFS = full_mode ? 2048 : 512;
+		preset_ref* refs = (preset_ref*)malloc(sizeof(preset_ref) * MAX_REFS);
+		if (refs == nullptr) { fclose(fLog); return; }
+		int ref_count = 0;
+
+		int collect_limit = full_mode ? MAX_REFS : max_scan;
+		for (int i = 0; i < 0xFFFF && ref_count < MAX_REFS && ref_count < collect_limit; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+				if (strncmp(name, "$weapon_item_preset_", 20) != 0) continue;
+				refs[ref_count].idx = i;
+				refs[ref_count].ent = ent;
+				ref_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		fprintf(fLog, "Collected %d preset entities\n\n", ref_count);
+
+		// full_mode: コンパクト1行/件のみ出力（FULL/PARTIAL diff用）
+		if (full_mode) {
+			fprintf(fLog, "=== Compact dump (1 line per preset) ===\n");
+			fprintf(fLog, "fmt: [idx] +230=v(str) +234=v +288=v +28C=v +648=v +64C=v +244=v +180=ptr type=...\n\n");
+			DWORD koff[] = { 0x230, 0x234, 0x288, 0x28C, 0x648, 0x64C, 0x244 };
+			for (int r = 0; r < ref_count; r++) {
+				BYTE* base_r = (BYTE*)refs[r].ent;
+				fprintf(fLog, "[%d]", refs[r].idx);
+				for (int k = 0; k < sizeof(koff) / sizeof(koff[0]); k++) {
+					__try {
+						DWORD v = *(DWORD*)(base_r + koff[k]);
+						const char* s = nullptr;
+						__try { if (v != 0 && v < 0x100000) s = resolve_str_handle(v); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+						bool sv = (s != nullptr && s[0] != '\0' && strlen(s) >= 3 && strlen(s) < 80);
+						fprintf(fLog, " +%03X=%X", koff[k], v);
+						if (sv) fprintf(fLog, "(%s)", s);
+					} __except(EXCEPTION_EXECUTE_HANDLER) { fprintf(fLog, " +%03X=??", koff[k]); }
+				}
+				// +0x180 ptr (parent slot)
+				__try {
+					void* p180 = *(void**)(base_r + 0x180);
+					fprintf(fLog, " +180=%p", p180);
+				} __except(EXCEPTION_EXECUTE_HANDLER) { fprintf(fLog, " +180=??"); }
+				// type derived from +0x240->+0x008
+				const char* ptype = nullptr;
+				__try {
+					void* def = *(void**)(base_r + 0x240);
+					if (def != nullptr) {
+						DWORD th = *(DWORD*)((BYTE*)def + 0x008);
+						if (th != 0) ptype = resolve_str_handle(th);
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+				fprintf(fLog, " type=%s", ptype ? ptype : "?");
+				fprintf(fLog, "\n");
+			}
+			free(refs);
+			fclose(fLog);
+			sprintf(buf, "[MetroDev] presetscan all: %d presets -> %s\n", ref_count, logname);
+			OutputDebugStringA(buf);
+			return;
+		}
+
+		// Step2: 最初のエンティティのフルhexダンプ
+		if (ref_count > 0) {
+			fprintf(fLog, "=== Full dump of [%d] ent=%p ===\n", refs[0].idx, refs[0].ent);
+			BYTE* base = (BYTE*)refs[0].ent;
+			for (DWORD off = 0; off < DUMP_SIZE; off += 16) {
+				char line[256];
+				int pos = sprintf(line, "  +0x%03X: ", off);
+				for (int b = 0; b < 16; b++) {
+					__try {
+						pos += sprintf(line + pos, "%02X ", base[off + b]);
+					} __except(EXCEPTION_EXECUTE_HANDLER) {
+						pos += sprintf(line + pos, "?? ");
+					}
+				}
+				pos += sprintf(line + pos, " |");
+				for (int b = 0; b < 16; b++) {
+					__try {
+						BYTE ch = base[off + b];
+						line[pos++] = (ch >= 0x20 && ch < 0x7F) ? ch : '.';
+					} __except(EXCEPTION_EXECUTE_HANDLER) {
+						line[pos++] = '?';
+					}
+				}
+				line[pos++] = '|';
+				line[pos++] = '\n';
+				line[pos] = '\0';
+				fprintf(fLog, "%s", line);
+			}
+			fprintf(fLog, "\n");
+		}
+
+		// Step3: 差分のあるオフセットのDWORD値を文字列ハンドルとして解決
+		if (ref_count >= 2) {
+			fprintf(fLog, "=== Resolving differing DWORD values as string handles ===\n");
+			BYTE* base0 = (BYTE*)refs[0].ent;
+			BYTE* base1 = (BYTE*)refs[1].ent;
+
+			// まず差分のあるオフセットを収集
+			for (DWORD off = 0; off < DUMP_SIZE; off += 4) {
+				__try {
+					DWORD v0 = *(DWORD*)(base0 + off);
+					DWORD v1 = *(DWORD*)(base1 + off);
+					if (v0 == v1) continue;
+
+					const char* s0 = nullptr;
+					const char* s1 = nullptr;
+					__try { if (v0 != 0) s0 = resolve_str_handle(v0); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+					__try { if (v1 != 0) s1 = resolve_str_handle(v1); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+					bool s0_valid = (s0 != nullptr && s0[0] != '\0' && strlen(s0) >= 3);
+					bool s1_valid = (s1 != nullptr && s1[0] != '\0' && strlen(s1) >= 3);
+
+					if (s0_valid || s1_valid) {
+						fprintf(fLog, "  +0x%03X: 0x%08X='%s' vs 0x%08X='%s'\n",
+							off, v0, s0_valid ? s0 : "?", v1, s1_valid ? s1 : "?");
+					}
+				} __except(EXCEPTION_EXECUTE_HANDLER) {}
+			}
+
+			// 全プリセットの候補オフセットの値を表示
+			fprintf(fLog, "\n=== All presets: key offsets ===\n");
+			DWORD check_offsets[] = { 0x230, 0x234, 0x288, 0x28C, 0x648, 0x64C, 0x380, 0x384 };
+			for (int r = 0; r < ref_count; r++) {
+				BYTE* base_r = (BYTE*)refs[r].ent;
+				fprintf(fLog, "[%d] ent=%p:", refs[r].idx, refs[r].ent);
+				for (int k = 0; k < sizeof(check_offsets) / sizeof(check_offsets[0]); k++) {
+					__try {
+						DWORD v = *(DWORD*)(base_r + check_offsets[k]);
+						const char* s = nullptr;
+						__try { if (v != 0) s = resolve_str_handle(v); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+						bool sv = (s != nullptr && s[0] != '\0' && strlen(s) >= 3);
+						fprintf(fLog, " +0x%03X=0x%X", check_offsets[k], v);
+						if (sv) fprintf(fLog, "('%s')", s);
+					} __except(EXCEPTION_EXECUTE_HANDLER) {}
+				}
+				fprintf(fLog, "\n");
+			}
+		}
+
+		free(refs);
+		fclose(fLog);
+		sprintf(buf, "[MetroDev] presetscan: %d presets -> wpn_give_presetscan.log\n", ref_count);
+		OutputDebugStringA(buf);
+		return;
+	}
+
 	// エンティティ名を取得
 	char entity_name[256];
 	strncpy(entity_name, args, sizeof(entity_name) - 1);
@@ -1582,6 +2504,295 @@ void __thiscall RestoreCommands::refly_execute(void* _this, const char* args)
 		Fly::fly(name, true, Fly::refly_speed, Fly::refly_cycles);
 	}
 }
+
+#ifdef _WIN64
+// バックグラウンドスキャン用パラメータ (1ジョブのみ同時実行)
+struct find_str_job {
+	char pattern[256];
+	int pat_len;
+	int max_hits;
+	int ctx_size;
+	bool rw_only;
+	int max_region_mb;  // 1領域の上限 MB (0=無制限)
+	bool aborted;
+};
+static find_str_job g_find_job;
+static volatile LONG g_find_running = 0;
+static HANDLE g_find_thread = nullptr;
+
+static DWORD WINAPI find_str_thread_proc(LPVOID lp)
+{
+	FILE* fLog = fopen("find_str.log", "w");
+	if (fLog == nullptr) {
+		OutputDebugStringA("[MetroDev] find_str: failed to open log\n");
+		InterlockedExchange(&g_find_running, 0);
+		return 1;
+	}
+
+	fprintf(fLog, "find_str: pattern=%s len=%d max=%d ctx=%d rw_only=%d max_region_mb=%d\n",
+		g_find_job.pattern, g_find_job.pat_len, g_find_job.max_hits,
+		g_find_job.ctx_size, g_find_job.rw_only ? 1 : 0, g_find_job.max_region_mb);
+	fflush(fLog);
+
+	SYSTEM_INFO si; GetSystemInfo(&si);
+	BYTE* addr = (BYTE*)si.lpMinimumApplicationAddress;
+	BYTE* max_addr = (BYTE*)si.lpMaximumApplicationAddress;
+	int region_count = 0;
+	int region_skipped_size = 0;
+	int hit_count = 0;
+	SIZE_T total_scanned = 0;
+	DWORD t_start = GetTickCount();
+	BYTE first = (BYTE)g_find_job.pattern[0];
+	const SIZE_T size_limit = g_find_job.max_region_mb > 0 ?
+		(SIZE_T)g_find_job.max_region_mb * 1024 * 1024 : 0;
+
+	while (addr < max_addr && hit_count < g_find_job.max_hits && !g_find_job.aborted) {
+		MEMORY_BASIC_INFORMATION mbi;
+		if (VirtualQuery(addr, &mbi, sizeof(mbi)) == 0) break;
+		BYTE* next = (BYTE*)mbi.BaseAddress + mbi.RegionSize;
+		if (next <= addr) {
+			// 無限ループ防止: 進まなければ 1ページ進める
+			fprintf(fLog, "  [warn] VirtualQuery non-progress at 0x%p, advancing 1 page\n", addr);
+			fflush(fLog);
+			next = addr + 0x1000;
+		}
+
+		bool readable = (mbi.State == MEM_COMMIT) &&
+			(mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY)) != 0 &&
+			(mbi.Protect & PAGE_GUARD) == 0 &&
+			(mbi.Protect & PAGE_NOACCESS) == 0;
+		bool is_image = (mbi.Type == MEM_IMAGE);
+		bool is_writable = (mbi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY)) != 0;
+
+		if (!readable) { addr = next; continue; }
+		if (g_find_job.rw_only && (is_image || !is_writable)) { addr = next; continue; }
+		if (size_limit > 0 && mbi.RegionSize > size_limit) {
+			region_skipped_size++;
+			addr = next; continue;
+		}
+
+		region_count++;
+		BYTE* base = (BYTE*)mbi.BaseAddress;
+		SIZE_T size = mbi.RegionSize;
+		total_scanned += size;
+
+		// 進捗ログ (32領域ごと)
+		if ((region_count & 31) == 0) {
+			fprintf(fLog, "  [progress] region=%d hits=%d scanned=%.1f MB elapsed=%.1f s\n",
+				region_count, hit_count, total_scanned / 1024.0 / 1024.0,
+				(GetTickCount() - t_start) / 1000.0);
+			fflush(fLog);
+		}
+
+		__try {
+			SIZE_T limit = size - g_find_job.pat_len;
+			for (SIZE_T i = 0; i <= limit; i++) {
+				if (base[i] != first) continue;
+				if (memcmp(base + i, g_find_job.pattern, g_find_job.pat_len) != 0) continue;
+
+				BYTE* hit = base + i;
+				BYTE* ctx_start = hit > base + g_find_job.ctx_size ? hit - g_find_job.ctx_size : base;
+				int pre_len = (int)(hit - ctx_start);
+				int post_len = g_find_job.ctx_size;
+				if ((SIZE_T)(i + g_find_job.pat_len + post_len) > size)
+					post_len = (int)(size - i - g_find_job.pat_len);
+
+				char ascii[200] = { 0 };
+				char hexbuf[400] = { 0 };
+				int total = pre_len + g_find_job.pat_len + post_len;
+				if (total > 80) total = 80;
+				int hp = 0, ap = 0;
+				for (int k = 0; k < total; k++) {
+					BYTE b = ctx_start[k];
+					hp += sprintf(hexbuf + hp, "%02X ", b);
+					ascii[ap++] = (b >= 32 && b < 127) ? (char)b : '.';
+				}
+				ascii[ap] = '\0';
+
+				fprintf(fLog, "@0x%p [%s%c] pre=%d post=%d  %s| %s\n",
+					hit,
+					is_image ? "img" : (is_writable ? "rw" : "r-"),
+					(mbi.Protect & (PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) ? 'x' : ' ',
+					pre_len, post_len, hexbuf, ascii);
+				fflush(fLog);
+
+				hit_count++;
+				if (hit_count >= g_find_job.max_hits) break;
+				i += g_find_job.pat_len - 1;
+			}
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			fprintf(fLog, "[exception in region 0x%p, size=0x%zX]\n", base, size);
+		}
+
+		addr = next;
+	}
+
+	fprintf(fLog, "\nfind_str: DONE %d hits / %d regions / %d size-skipped (total %.1f MB / %.1f s)%s\n",
+		hit_count, region_count, region_skipped_size,
+		total_scanned / 1024.0 / 1024.0,
+		(GetTickCount() - t_start) / 1000.0,
+		g_find_job.aborted ? "  [ABORTED]" : "");
+	fclose(fLog);
+
+	char msg[256];
+	sprintf(msg, "[MetroDev] find_str '%s' done: %d hits / %d regions in %.1f s\n",
+		g_find_job.pattern, hit_count, region_count, (GetTickCount() - t_start) / 1000.0);
+	OutputDebugStringA(msg);
+
+	InterlockedExchange(&g_find_running, 0);
+	return 0;
+}
+
+// runtime メモリスキャン: バックグラウンド thread で実行 (即座に return)
+// 使い方:
+//   find_str silencer_044
+//   find_str silencer_044 max=100      （最大ヒット数, デフォルト 200）
+//   find_str silencer_044 ctx=24       （周辺表示 byte 数, デフォルト 16, 上限 64）
+//   find_str silencer_044 rw           （RW image 以外のみ。書込可能データ領域に絞る）
+//   find_str silencer_044 rmb=64       （1領域の上限 MB, デフォルト 64。0=無制限）
+//   find_str status                    （実行中ジョブの状態確認）
+//   find_str abort                     （実行中ジョブの中断要求）
+void __fastcall RestoreCommands::find_str_execute(void* _this, const char* args)
+{
+	if (args == nullptr || *args == '\0') {
+		OutputDebugStringA("[MetroDev] find_str: usage: find_str <pattern> [max=N] [ctx=N] [rw] [rmb=N] | status | abort\n");
+		return;
+	}
+
+	const char* p = args;
+	while (*p == ' ') p++;
+
+	if (strncmp(p, "status", 6) == 0) {
+		char msg[128];
+		sprintf(msg, "[MetroDev] find_str: running=%ld\n", g_find_running);
+		OutputDebugStringA(msg);
+		return;
+	}
+	if (strncmp(p, "abort", 5) == 0) {
+		g_find_job.aborted = true;
+		OutputDebugStringA("[MetroDev] find_str: abort requested\n");
+		return;
+	}
+
+	if (InterlockedCompareExchange(&g_find_running, 1, 0) != 0) {
+		OutputDebugStringA("[MetroDev] find_str: already running, use 'find_str abort' to cancel\n");
+		return;
+	}
+
+	const char* pat_begin = p;
+	while (*p != '\0' && *p != ' ') p++;
+	int pat_len = (int)(p - pat_begin);
+	if (pat_len <= 0 || pat_len > 255) {
+		OutputDebugStringA("[MetroDev] find_str: invalid pattern length\n");
+		InterlockedExchange(&g_find_running, 0);
+		return;
+	}
+
+	memcpy(g_find_job.pattern, pat_begin, pat_len);
+	g_find_job.pattern[pat_len] = '\0';
+	g_find_job.pat_len = pat_len;
+	g_find_job.max_hits = 200;
+	g_find_job.ctx_size = 16;
+	g_find_job.rw_only = false;
+	g_find_job.max_region_mb = 512;  // 1領域の上限。0=無制限
+	g_find_job.aborted = false;
+
+	while (*p != '\0') {
+		while (*p == ' ') p++;
+		if (*p == '\0') break;
+		if (strncmp(p, "max=", 4) == 0) { g_find_job.max_hits = atoi(p + 4); if (g_find_job.max_hits <= 0) g_find_job.max_hits = 200; }
+		else if (strncmp(p, "ctx=", 4) == 0) { g_find_job.ctx_size = atoi(p + 4); if (g_find_job.ctx_size < 0) g_find_job.ctx_size = 0; if (g_find_job.ctx_size > 64) g_find_job.ctx_size = 64; }
+		else if (strncmp(p, "rmb=", 4) == 0) { g_find_job.max_region_mb = atoi(p + 4); if (g_find_job.max_region_mb < 0) g_find_job.max_region_mb = 0; }
+		else if (strncmp(p, "rw", 2) == 0) { g_find_job.rw_only = true; }
+		while (*p != '\0' && *p != ' ') p++;
+	}
+
+	if (g_find_thread != nullptr) { CloseHandle(g_find_thread); g_find_thread = nullptr; }
+	g_find_thread = CreateThread(nullptr, 0, &find_str_thread_proc, nullptr, 0, nullptr);
+	if (g_find_thread == nullptr) {
+		OutputDebugStringA("[MetroDev] find_str: CreateThread failed\n");
+		InterlockedExchange(&g_find_running, 0);
+		return;
+	}
+
+	char msg[256];
+	sprintf(msg, "[MetroDev] find_str '%s' started in background -> find_str.log (max=%d, rw=%d, rmb=%d MB)\n",
+		g_find_job.pattern, g_find_job.max_hits, g_find_job.rw_only ? 1 : 0, g_find_job.max_region_mb);
+	OutputDebugStringA(msg);
+}
+
+// 指定アドレスから N byte をダンプ (hex+ASCII)
+// 使い方:
+//   dump_mem 0x123456789ABC
+//   dump_mem 0x123456789ABC 512
+void __fastcall RestoreCommands::dump_mem_execute(void* _this, const char* args)
+{
+	if (args == nullptr || *args == '\0') {
+		OutputDebugStringA("[MetroDev] dump_mem: usage: dump_mem <hex_addr> [size]\n");
+		return;
+	}
+	const char* p = args;
+	while (*p == ' ') p++;
+	if (*p == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+
+	uintptr_t addr = 0;
+	while (*p != '\0' && *p != ' ') {
+		char c = *p++;
+		uintptr_t d;
+		if (c >= '0' && c <= '9') d = c - '0';
+		else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+		else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+		else { OutputDebugStringA("[MetroDev] dump_mem: invalid hex addr\n"); return; }
+		addr = (addr << 4) | d;
+	}
+	while (*p == ' ') p++;
+	int size = 256;
+	if (*p != '\0') { size = atoi(p); if (size <= 0 || size > 0x10000) size = 256; }
+
+	BYTE* base = (BYTE*)addr;
+	MEMORY_BASIC_INFORMATION mbi;
+	if (VirtualQuery(base, &mbi, sizeof(mbi)) == 0 || mbi.State != MEM_COMMIT ||
+		(mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY)) == 0 ||
+		(mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+		char msg[128];
+		sprintf(msg, "[MetroDev] dump_mem: 0x%p not readable\n", base);
+		OutputDebugStringA(msg);
+		return;
+	}
+
+	// 領域内に収まるよう調整
+	BYTE* region_end = (BYTE*)mbi.BaseAddress + mbi.RegionSize;
+	if (base + size > region_end) size = (int)(region_end - base);
+	if (size <= 0) return;
+
+	FILE* fLog = fopen("dump_mem.log", "w");
+	if (fLog == nullptr) { OutputDebugStringA("[MetroDev] dump_mem: failed to open log\n"); return; }
+
+	fprintf(fLog, "dump_mem: addr=0x%p size=%d region_base=0x%p region_size=0x%zX prot=0x%X\n",
+		base, size, mbi.BaseAddress, mbi.RegionSize, mbi.Protect);
+
+	__try {
+		for (int row = 0; row < size; row += 16) {
+			char hexbuf[64] = { 0 }, ascii[20] = { 0 };
+			int hp = 0, ap = 0;
+			for (int c = 0; c < 16 && row + c < size; c++) {
+				BYTE b = base[row + c];
+				hp += sprintf(hexbuf + hp, "%02X ", b);
+				ascii[ap++] = (b >= 32 && b < 127) ? (char)b : '.';
+			}
+			ascii[ap] = '\0';
+			fprintf(fLog, "  +0x%04X  %-48s |%s|\n", row, hexbuf, ascii);
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		fprintf(fLog, "[exception during dump]\n");
+	}
+
+	fclose(fLog);
+	char msg[128];
+	sprintf(msg, "[MetroDev] dump_mem 0x%p (%d bytes) -> dump_mem.log\n", base, size);
+	OutputDebugStringA(msg);
+}
+#endif
 
 void RestoreCommands::cmd_register_commands() {
 	uconsole cu = uconsole::uconsole(Utils::GetConsole());
@@ -1731,6 +2942,14 @@ void RestoreCommands::cmd_register_commands() {
 				cu.command_add(&wpn_give_pickup_hook_new);
 			}
 
+		}
+
+		// runtime メモリ解析用 (アタッチメント保持構造特定のため)
+		if (Utils::isExodus()) {
+			find_str_new.construct(&find_str_vftable_exodus, pCmd1->__vftable, "find_str", &find_str_execute);
+			cu.command_add(&find_str_new);
+			dump_mem_new.construct(&dump_mem_vftable_exodus, pCmd1->__vftable, "dump_mem", &dump_mem_execute);
+			cu.command_add(&dump_mem_new);
 		}
 	}
 #else
