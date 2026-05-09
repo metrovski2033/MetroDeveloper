@@ -476,7 +476,7 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 {
 	while (*args == ' ') args++;
 	if (*args == '\0') {
-		OutputDebugStringA("[MetroDev] wpn_give: usage: wpn_give <name> | list [prefix]\n");
+		OutputDebugStringA("[MetroDev] wpn_give: usage: wpn_give <name> | list [prefix] | throw_list [prefix]\n");
 		return;
 	}
 
@@ -499,44 +499,19 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 		return;
 	}
 
-	// list サブコマンド: vtable[4]ベースの武器判定 + entity[+0x240]->[+0x008]の武器種別で分類表示
+	// list サブコマンド: entity[+0x240]->[+0x008]の型文字列が"weapons\"始まりのものを武器として分類表示
 	if (strncmp(args, "list", 4) == 0) {
 		const char* filter = nullptr;
 		const char* sp = args + 4;
 		while (*sp == ' ') sp++;
 		if (*sp != '\0') filter = sp;
 
-		// Step1: 既知の武器名からvt[4]の武器判定値を動的取得
-		void* weapon_vt4 = nullptr;
-		const char* ref_probes[] = { "revolver_", "ak_74_", "ashot_", "shotgun_", nullptr };
-		for (int p = 0; ref_probes[p] != nullptr && weapon_vt4 == nullptr; p++) {
-			for (int i = 0; i < 0xFFFF && weapon_vt4 == nullptr; i++) {
-				void* ent = entity_array[i];
-				if (ent == nullptr) continue;
-				__try {
-					DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
-					if (handle == 0) continue;
-					const char* name = resolve_str_handle(handle);
-					if (name != nullptr && strncmp(name, ref_probes[p], strlen(ref_probes[p])) == 0) {
-						void** vt = *(void***)ent;
-						weapon_vt4 = vt[4];
-					}
-				} __except(EXCEPTION_EXECUTE_HANDLER) {}
-			}
-		}
-
-		if (weapon_vt4 == nullptr) {
-			OutputDebugStringA("[MetroDev] wpn_give list: weapon reference not found (vt[4] unknown)\n");
-			return;
-		}
-
-		// Step2: 全武器を収集し、entity[+0x240]->[+0x008] から武器種別を取得
 		struct wpn_item {
 			int index;
 			char name[64];
 			char weapon_type[64];
 		};
-		const int MAX_WEAPONS = 512;
+		const int MAX_WEAPONS = 1024;
 		wpn_item* weapons = (wpn_item*)malloc(sizeof(wpn_item) * MAX_WEAPONS);
 		if (weapons == nullptr) { OutputDebugStringA("[MetroDev] wpn_give list: malloc failed\n"); return; }
 		int weapon_count = 0;
@@ -545,8 +520,20 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 			void* ent = entity_array[i];
 			if (ent == nullptr) continue;
 			__try {
-				void** vt = *(void***)ent;
-				if (vt[4] != weapon_vt4) continue;
+				// 武器種別を取得: entity[+0x240] -> [+0x008] -> string
+				void* def_ptr = *(void**)((BYTE*)ent + 0x240);
+				if (def_ptr == nullptr) continue;
+				DWORD type_handle = *(DWORD*)((BYTE*)def_ptr + 0x008);
+				if (type_handle == 0) continue;
+				const char* wtype = resolve_str_handle(type_handle);
+				// 銃本体のみ対象: weapons\ 始まりかつ弾薬/アタッチ/投擲/敵武器を除外
+				if (wtype == nullptr || strncmp(wtype, "weapons\\", 8) != 0) continue;
+				if (strncmp(wtype, "weapons\\Ammo\\",      13) == 0) continue;
+				if (strncmp(wtype, "weapons\\Ammo_loot\\", 18) == 0) continue;
+				if (strncmp(wtype, "weapons\\attaches\\",  17) == 0) continue;
+				if (strncmp(wtype, "weapons\\Fast drop\\", 18) == 0) continue;
+				if (strncmp(wtype, "weapons\\Monster\\",   16) == 0) continue;
+				if (strncmp(wtype, "weapons\\NPC\\",       12) == 0) continue;
 
 				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
 				if (handle == 0) continue;
@@ -554,24 +541,10 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 				if (name == nullptr) continue;
 				if (filter != nullptr && strstr(name, filter) == nullptr) continue;
 
-				// 武器種別を取得: entity[+0x240] -> pointer -> [+0x008] -> string handle
-				const char* wtype = nullptr;
-				__try {
-					void* def_ptr = *(void**)((BYTE*)ent + 0x240);
-					if (def_ptr != nullptr) {
-						DWORD type_handle = *(DWORD*)((BYTE*)def_ptr + 0x008);
-						if (type_handle != 0) wtype = resolve_str_handle(type_handle);
-					}
-				} __except(EXCEPTION_EXECUTE_HANDLER) {}
-
 				weapons[weapon_count].index = i;
 				strncpy(weapons[weapon_count].name, name, 63);
 				weapons[weapon_count].name[63] = '\0';
-				if (wtype != nullptr) {
-					strncpy(weapons[weapon_count].weapon_type, wtype, 63);
-				} else {
-					strncpy(weapons[weapon_count].weapon_type, "(unknown)", 63);
-				}
+				strncpy(weapons[weapon_count].weapon_type, wtype, 63);
 				weapons[weapon_count].weapon_type[63] = '\0';
 				weapon_count++;
 			} __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -614,6 +587,91 @@ void __fastcall RestoreCommands::wpn_give_execute(void* _this, const char* args)
 			total++;
 		}
 		fprintf(fList, "\n%d weapons in %d types\n", total, type_count);
+		fclose(fList);
+
+		free(weapons);
+		return;
+	}
+
+	// throw_list サブコマンド: weapons\Fast drop\ の投擲物を wpn_give_throw_list.log に出力
+	if (strncmp(args, "throw_list", 10) == 0) {
+		const char* filter = nullptr;
+		const char* sp = args + 10;
+		while (*sp == ' ') sp++;
+		if (*sp != '\0') filter = sp;
+
+		struct wpn_item {
+			int index;
+			char name[64];
+			char weapon_type[64];
+		};
+		const int MAX_WEAPONS = 1024;
+		wpn_item* weapons = (wpn_item*)malloc(sizeof(wpn_item) * MAX_WEAPONS);
+		if (weapons == nullptr) { OutputDebugStringA("[MetroDev] wpn_give throw_list: malloc failed\n"); return; }
+		int weapon_count = 0;
+
+		for (int i = 0; i < 0xFFFF && weapon_count < MAX_WEAPONS; i++) {
+			void* ent = entity_array[i];
+			if (ent == nullptr) continue;
+			__try {
+				void* def_ptr = *(void**)((BYTE*)ent + 0x240);
+				if (def_ptr == nullptr) continue;
+				DWORD type_handle = *(DWORD*)((BYTE*)def_ptr + 0x008);
+				if (type_handle == 0) continue;
+				const char* wtype = resolve_str_handle(type_handle);
+				if (wtype == nullptr || strncmp(wtype, "weapons\\Fast drop\\", 18) != 0) continue;
+				if (strncmp(wtype, "weapons\\Fast drop\\Special\\", 26) == 0) continue;
+
+				DWORD handle = *(DWORD*)((BYTE*)ent + 0x238);
+				if (handle == 0) continue;
+				const char* name = resolve_str_handle(handle);
+				if (name == nullptr) continue;
+				if (filter != nullptr && strstr(name, filter) == nullptr) continue;
+
+				weapons[weapon_count].index = i;
+				strncpy(weapons[weapon_count].name, name, 63);
+				weapons[weapon_count].name[63] = '\0';
+				strncpy(weapons[weapon_count].weapon_type, wtype, 63);
+				weapons[weapon_count].weapon_type[63] = '\0';
+				weapon_count++;
+			} __except(EXCEPTION_EXECUTE_HANDLER) {}
+		}
+
+		for (int a = 0; a < weapon_count - 1; a++) {
+			for (int b = a + 1; b < weapon_count; b++) {
+				int cmp = strcmp(weapons[a].weapon_type, weapons[b].weapon_type);
+				if (cmp == 0) cmp = strcmp(weapons[a].name, weapons[b].name);
+				if (cmp > 0) {
+					wpn_item tmp = weapons[a];
+					weapons[a] = weapons[b];
+					weapons[b] = tmp;
+				}
+			}
+		}
+
+		FILE* fList = fopen("wpn_give_throw_list.log", "w");
+		if (fList == nullptr) {
+			OutputDebugStringA("[MetroDev] wpn_give throw_list: failed to open wpn_give_throw_list.log\n");
+			free(weapons);
+			return;
+		}
+
+		int total = 0;
+		int type_count = 0;
+		char current_type[64] = "";
+		for (int w = 0; w < weapon_count; w++) {
+			if (strcmp(weapons[w].weapon_type, current_type) != 0) {
+				strncpy(current_type, weapons[w].weapon_type, 63);
+				current_type[63] = '\0';
+				type_count++;
+				int group_size = 0;
+				for (int c = w; c < weapon_count && strcmp(weapons[c].weapon_type, current_type) == 0; c++) group_size++;
+				fprintf(fList, "=== %s (%d) ===\n", current_type, group_size);
+			}
+			fprintf(fList, "  [%d] %s\n", weapons[w].index, weapons[w].name);
+			total++;
+		}
+		fprintf(fList, "\n%d items in %d types\n", total, type_count);
 		fclose(fList);
 
 		free(weapons);
