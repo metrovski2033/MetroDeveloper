@@ -39,6 +39,7 @@ public:
 	static void __fastcall wpn_give_uboynicheg_execute(void* _this, const char* args);
 	static void __fastcall wpn_give_ventil_execute(void* _this, const char* args);
 	static void __fastcall wpn_give_vyhlop_execute(void* _this, const char* args);
+	static void numpad_r_on_key_press(int key);
 #else
 	static void __thiscall signal_execute(void* _this, const char* name);
 	static void __thiscall fly_execute(void* _this, const char* name);

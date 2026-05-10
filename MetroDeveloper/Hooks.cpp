@@ -565,6 +565,12 @@ void __fastcall Hooks::clevel_r_on_key_press_Hook(void* _this, int action, int k
 		Unlock3rdPerson::clevel_r_on_key_press(_this, action, key, state, resending);
 	}
 
+#ifdef _WIN64
+	if (Utils::isExodus()) {
+		RestoreCommands::numpad_r_on_key_press(key);
+	}
+#endif
+
 	typedef void(__thiscall* _clevel_r_on_key_press)(void* _this, int action, int key, int state, int resending);
 	((_clevel_r_on_key_press)clevel_r_on_key_press_Orig)(_this, action, key, state, resending);
 }

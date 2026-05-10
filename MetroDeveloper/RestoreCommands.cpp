@@ -24,6 +24,8 @@ cmd_executor_struct_ll refly_old;
 cmd_executor_struct_ll signal_old;
 
 #ifdef _WIN64
+static bool isTimeIncreased = false;
+
 uconsole_command_exodus_vtbl signal_vftable_exodus;
 uconsole_command_exodus_vtbl fly_vftable_exodus;
 uconsole_command_exodus_vtbl refly_vftable_exodus;
@@ -750,6 +752,113 @@ void __fastcall RestoreCommands::wpn_give_ubludok_execute(void* _this, const cha
 void __fastcall RestoreCommands::wpn_give_uboynicheg_execute(void* _this, const char* args) { wpn_give_execute(_this, "uboynicheg_base"); }
 void __fastcall RestoreCommands::wpn_give_ventil_execute(void* _this, const char* args)     { wpn_give_execute(_this, "ventil_base"); }
 void __fastcall RestoreCommands::wpn_give_vyhlop_execute(void* _this, const char* args)     { wpn_give_execute(_this, "vyhlop_base"); }
+
+void RestoreCommands::numpad_r_on_key_press(int key)
+{
+	static ULONGLONG s_lastTickWpn[256] = {};
+
+	switch (key) {
+	case 71: { // NUMPAD 7 — wpn_give_ashot
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[71] < 200) break; s_lastTickWpn[71] = n; }
+		wpn_give_ashot_execute(nullptr, nullptr);
+		break;
+	}
+	case 72: { // NUMPAD 8 — wpn_give_uboynicheg
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[72] < 200) break; s_lastTickWpn[72] = n; }
+		wpn_give_uboynicheg_execute(nullptr, nullptr);
+		break;
+	}
+	case 73: { // NUMPAD 9 — wpn_give_flamethrower
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[73] < 200) break; s_lastTickWpn[73] = n; }
+		wpn_give_flamethrower_execute(nullptr, nullptr);
+		break;
+	}
+	case 75: { // NUMPAD 4 — wpn_give_revolver
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[75] < 200) break; s_lastTickWpn[75] = n; }
+		wpn_give_revolver_execute(nullptr, nullptr);
+		break;
+	}
+	case 76: { // NUMPAD 5 — wpn_give_ventil
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[76] < 200) break; s_lastTickWpn[76] = n; }
+		wpn_give_ventil_execute(nullptr, nullptr);
+		break;
+	}
+	case 77: { // NUMPAD 6 — wpn_give_gatling
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[77] < 200) break; s_lastTickWpn[77] = n; }
+		wpn_give_gatling_execute(nullptr, nullptr);
+		break;
+	}
+	case 79: { // NUMPAD 1 — wpn_give_ubludok
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[79] < 200) break; s_lastTickWpn[79] = n; }
+		wpn_give_ubludok_execute(nullptr, nullptr);
+		break;
+	}
+	case 80: { // NUMPAD 2 — wpn_give_ak_74
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[80] < 200) break; s_lastTickWpn[80] = n; }
+		wpn_give_ak_74_execute(nullptr, nullptr);
+		break;
+	}
+	case 81: { // NUMPAD 3 — wpn_give_vyhlop
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[81] < 200) break; s_lastTickWpn[81] = n; }
+		wpn_give_vyhlop_execute(nullptr, nullptr);
+		break;
+	}
+	case 82: { // NUMPAD 0 — wpn_give_tihar
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[82] < 200) break; s_lastTickWpn[82] = n; }
+		wpn_give_tihar_execute(nullptr, nullptr);
+		break;
+	}
+	case 83: { // NUMPAD . — wpn_give_helsing
+		if (Utils::isExodusEE) { ULONGLONG n = GetTickCount64(); if (n - s_lastTickWpn[83] < 200) break; s_lastTickWpn[83] = n; }
+		wpn_give_helsing_execute(nullptr, nullptr);
+		break;
+	}
+	case 55: { // NUMPAD * — gamespeed を 1.0 にリセット
+		static ULONGLONG s_lastTickReset = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickReset) < 200) break;
+		s_lastTickReset = _now;
+
+		isTimeIncreased = false;
+		Utils::slowmo_debug(1.0f);
+		break;
+	}
+	case 181: { // NUMPAD / — pause
+		static ULONGLONG s_lastTickPause = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickPause) < 200) break;
+		s_lastTickPause = _now;
+
+		uconsole_server_exodus** console = (uconsole_server_exodus**)Utils::GetConsole();
+		(*console)->execute_deferred(console, "pause");
+		break;
+	}
+	case 78: { // NUMPAD PLUS — 時間速度を上げる
+		static ULONGLONG s_lastTickPlus = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickPlus) < 200) break;
+		s_lastTickPlus = _now;
+
+		isTimeIncreased = true;
+		Utils::slowmo_debug_increase();
+		break;
+	}
+	case 74: { // NUMPAD MINUS — 時間速度を下げる
+		static ULONGLONG s_lastTickMinus = 0;
+		ULONGLONG _now = GetTickCount64();
+		if (Utils::isExodusEE && (_now - s_lastTickMinus) < 200) break;
+		s_lastTickMinus = _now;
+
+		if (isTimeIncreased) {
+			isTimeIncreased = false;
+			Utils::slowmo_debug(1.0f);
+		} else {
+			Utils::slowmo_debug_decrease();
+		}
+		break;
+	}
+	}
+}
 #endif
 
 #ifdef _WIN64

@@ -14,8 +14,6 @@ typedef void* (__fastcall* _tlsf_memalign)(DWORD64 tlsf, DWORD align, DWORD size
 typedef void* (__fastcall* _camera_manager_play_track_redux)(DWORD64 _this, void* t, float accrue, float start_pos, void* unused3, void* e, void* unused4, void* unused5, void* owner);
 typedef void* (__fastcall* _camera_manager_play_track_arktika_and_exodus)(DWORD64 _this, void* t, float accrue, float start_pos, void* owner);
 _tlsf_memalign tlsf_memalign = nullptr;
-bool isTimeIncreased = false;
-
 #else
 
 typedef _icamera_track_constructor(__thiscall* _cflycam_cflycam)(void* _this, const char* name);
@@ -326,54 +324,6 @@ void __fastcall Fly::exodus_cflycam_r_on_key_press(void* _this, int action, int 
 		if (Utils::GetBool("other", "unlock_dev_console", false)) {
 			uconsole_server_exodus** console = (uconsole_server_exodus**)Utils::GetConsole();
 			(*console)->show(console);
-		}
-		break;
-	}
-	case 55: { // NUMPAD * — gamespeed を 1.0 (既定値) にリセット
-		static ULONGLONG s_lastTickReset = 0;
-		ULONGLONG _now = GetTickCount64();
-		if (Utils::isExodusEE && (_now - s_lastTickReset) < 200) break;
-		s_lastTickReset = _now;
-
-		isTimeIncreased = false;
-		Utils::slowmo_debug(1.0f);
-		break;
-	}
-	case 82: { // NUMPAD 0 (旧: 197 PAUSE — Pauseキーを持たないキーボード向けに NUMPAD 0 へ変更)
-		// EE は単発プレスでハンドラを複数回発火するため、pause がトグルし続けてしまう。
-		// NUMPAD+/- と同様に 200ms デバウンスを適用。
-		static ULONGLONG s_lastTickPause = 0;
-		ULONGLONG _now = GetTickCount64();
-		if (Utils::isExodusEE && (_now - s_lastTickPause) < 200) break;
-		s_lastTickPause = _now;
-
-		uconsole_server_exodus** console = (uconsole_server_exodus**)Utils::GetConsole();
-		(*console)->execute_deferred(console, "pause");
-		break;
-	}
-	case 78: { // NUMPAD PLUS
-		// EE は単発プレスでハンドラを複数回 (典型的に 9 回) 発火するため、
-		// 200ms 未満の連続呼び出しは無視する。state/resending では抑制不可だった。
-		static ULONGLONG s_lastTickPlus = 0;
-		ULONGLONG _now = GetTickCount64();
-		if (Utils::isExodusEE && (_now - s_lastTickPlus) < 200) break;
-		s_lastTickPlus = _now;
-
-		isTimeIncreased = true;
-		Utils::slowmo_debug_increase();
-		break;
-	}
-	case 74: { // NUMPAD MINUS
-		static ULONGLONG s_lastTickMinus = 0;
-		ULONGLONG _now = GetTickCount64();
-		if (Utils::isExodusEE && (_now - s_lastTickMinus) < 200) break;
-		s_lastTickMinus = _now;
-
-		if (isTimeIncreased) {
-			isTimeIncreased = false;
-			Utils::slowmo_debug(1.0f);
-		} else {
-			Utils::slowmo_debug_decrease();
 		}
 		break;
 	}
