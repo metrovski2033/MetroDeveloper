@@ -126,6 +126,9 @@
     <ClCompile Include="DisableFiltersCostMod.cpp">
       <Filter>Файлы исходного кода\patches</Filter>
     </ClCompile>
+    <ClCompile Include="DisableWeaponJam.cpp">
+      <Filter>Файлы исходного кода\patches</Filter>
+    </ClCompile>
     <ClCompile Include="SmallFontReplacer2033.cpp">
       <Filter>Файлы исходного кода\patches</Filter>
     </ClCompile>
@@ -237,6 +240,9 @@
       <Filter>Заголовочные файлы\patches\Arktika1</Filter>
     </ClInclude>
     <ClInclude Include="DisableFiltersCostMod.h">
+      <Filter>Заголовочные файлы\patches</Filter>
+    </ClInclude>
+    <ClInclude Include="DisableWeaponJam.h">
       <Filter>Заголовочные файлы\patches</Filter>
     </ClInclude>
     <ClInclude Include="SmallFontReplacer2033.h">

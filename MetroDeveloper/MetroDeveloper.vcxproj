@@ -155,6 +155,7 @@
     <ClCompile Include="ConsoleUnlocker.cpp" />
     <ClCompile Include="ContentUnlocker.cpp" />
     <ClCompile Include="DisableFiltersCostMod.cpp" />
+    <ClCompile Include="DisableWeaponJam.cpp" />
     <ClCompile Include="DllMain.cpp">
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</CompileAsManaged>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -205,6 +206,7 @@
     <ClInclude Include="ConsoleUnlocker.h" />
     <ClInclude Include="ContentUnlocker.h" />
     <ClInclude Include="DisableFiltersCostMod.h" />
+    <ClInclude Include="DisableWeaponJam.h" />
     <ClInclude Include="Fly.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="navmap\i_pathengine.h" />

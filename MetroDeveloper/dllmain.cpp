@@ -24,6 +24,7 @@
 #include "ShadersHack.h"
 
 #include "DisableFiltersCostMod.h"
+#include "DisableWeaponJam.h"
 
 #else
 
@@ -61,6 +62,7 @@ void InitMetroDeveloper()
 	NavMapGen::NavMapGen();
 #else
 	DisableFiltersCostMod::DisableFiltersCostMod();
+	DisableWeaponJam::DisableWeaponJam();
 
 	if (Utils::isArktika()) {
 		MenuHack::MenuHack();
@@ -128,7 +130,7 @@ BOOL APIENTRY DllMain(HINSTANCE hInstDLL, DWORD reason, LPVOID reserved)
 		//AllocConsole();
 		//freopen("CONOUT$", "w", stdout);
 
-		// удаляем старую asi версию
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ asi пїЅпїЅпїЅпїЅпїЅпїЅ
 		DeleteFile("MetroDeveloper.asi");
 
 		MH_Initialize();

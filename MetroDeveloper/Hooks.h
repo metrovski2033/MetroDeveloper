@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "Patcher.h"
 #include "MinHook\MinHook.h"
 

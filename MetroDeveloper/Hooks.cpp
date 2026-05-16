@@ -1,4 +1,4 @@
-#include "Hooks.h"
+﻿#include "Hooks.h"
 #include "Utils.h"
 #include "ConsoleUnlocker.h"
 #include "QuickSave.h"
