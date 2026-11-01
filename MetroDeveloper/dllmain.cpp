@@ -25,6 +25,7 @@
 
 #include "DisableFiltersCostMod.h"
 #include "DisableWeaponJam.h"
+#include "DisableWeaponDirt.h"
 
 #else
 
@@ -63,6 +64,7 @@ void InitMetroDeveloper()
 #else
 	DisableFiltersCostMod::DisableFiltersCostMod();
 	DisableWeaponJam::DisableWeaponJam();
+	DisableWeaponDirt::DisableWeaponDirt();
 
 	if (Utils::isArktika()) {
 		MenuHack::MenuHack();
