@@ -5,7 +5,6 @@
 - Metro 2033 Redux / Metro Last Light Redux の Next-Gen Update 後の版にも対応しています (Steam / Epic 共通)。
   - ```enhanced_edition = no``` のまま利用してください。
   - ```multiplayer_fix``` は未対応のため、設定によらず無効になります。
-  - 実際に動作を確認したのは Steam 版の Metro 2033 Redux のみです。
 - VisualStudio2026でビルド
   - ```msbuild MetroDeveloper.sln /p:Configuration=Release /p:Platform=x64```
 
@@ -16,7 +15,6 @@
 - Также поддерживаются версии Metro 2033 Redux / Metro Last Light Redux после Next-Gen Update (Steam / Epic).
   - Оставьте ```enhanced_edition = no```.
   - ```multiplayer_fix``` не поддерживается и отключён независимо от настройки.
-  - Работа в игре проверена только в Steam-версии Metro 2033 Redux.
 - Собрано с помощью Visual Studio 2026
   - ```msbuild MetroDeveloper.sln /p:Configuration=Release /p:Platform=x64```
 
@@ -27,7 +25,6 @@
 - Metro 2033 Redux / Metro Last Light Redux after the Next-Gen Update are also supported (Steam / Epic).
   - Keep ```enhanced_edition = no```.
   - ```multiplayer_fix``` is not supported and stays disabled regardless of the setting.
-  - In-game testing has only been done on the Steam version of Metro 2033 Redux.
 - Built with Visual Studio 2026
   - ```msbuild MetroDeveloper.sln /p:Configuration=Release /p:Platform=x64```
 
