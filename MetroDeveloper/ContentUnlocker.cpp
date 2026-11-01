@@ -29,6 +29,13 @@ ContentUnlocker::ContentUnlocker()
 				"xxxxxxxxxxxxxxxxx????xxxxxxxxx?xxxxxxxxxxxxx");
 		}
 
+		if (vfs_ropen_os == NULL) {
+			// 40 53 56 41 57 48 81 EC ? ? ? ? 48 8B F1 45 33 FF 4C 89 39 48 8B DA - Redux NextGen
+			vfs_ropen_os = (_vfs_ropen_os)FindPatternInEXE(
+				"\x40\x53\x56\x41\x57\x48\x81\xEC\x00\x00\x00\x00\x48\x8B\xF1\x45\x33\xFF\x4C\x89\x39\x48\x8B\xDA",
+				"xxxxxxxx????xxxxxxxxxxxx");
+		}
+
 		// 4c 89 44 24 ? 55 53 56 57 41 55 41 56 48 8d 6c 24 - Redux STEAM
 		asset_manager_load = (void*)FindPatternInEXE(
 			"\x4c\x89\x44\x24\x00\x55\x53\x56\x57\x41\x55\x41\x56\x48\x8d\x6c\x24",
@@ -38,6 +45,13 @@ ContentUnlocker::ContentUnlocker()
 			// 48 89 5C 24 ? 4C 89 44 24 ? 55 56 57 41 55 41 56 48 8D 6C 24 ? 48 81 EC - Redux EGS
 			asset_manager_load = (void*)FindPatternInEXE(
 				"\x48\x89\x5C\x24\x00\x4C\x89\x44\x24\x00\x55\x56\x57\x41\x55\x41\x56\x48\x8D\x6C\x24\x00\x48\x81\xEC",
+				"xxxx?xxxx?xxxxxxxxxxx?xxx");
+		}
+
+		if (asset_manager_load == NULL) {
+			// 48 89 5C 24 ? 4C 89 44 24 ? 55 56 57 41 56 41 57 48 8D 6C 24 ? 48 81 EC - Redux NextGen
+			asset_manager_load = (void*)FindPatternInEXE(
+				"\x48\x89\x5C\x24\x00\x4C\x89\x44\x24\x00\x55\x56\x57\x41\x56\x41\x57\x48\x8D\x6C\x24\x00\x48\x81\xEC",
 				"xxxx?xxxx?xxxxxxxxxxx?xxx");
 		}
 	} else if (Utils::isArktika()) {

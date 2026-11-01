@@ -30,6 +30,13 @@ AllowDDS::AllowDDS()
 					"xxxxxxxx????xxxxxxxxxxxxxx????xxxxxxx????xxx");
 			}
 
+			if (jne == NULL) {
+				// 75 70 49 8B 45 00 48 8D 0D - Redux NextGen
+				jne = (LPVOID)FindPatternInEXE(
+					"\x75\x70\x49\x8B\x45\x00\x48\x8D\x0D",
+					"xxxxxxxxx");
+			}
+
 			BYTE JMP[] = { 0xEB };
 			ASMWrite(jne, JMP, sizeof(JMP));
 		} else if (Utils::isArktika() || Utils::isExodus()) {

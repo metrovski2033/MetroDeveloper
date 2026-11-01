@@ -40,7 +40,12 @@ Fly::Fly()
 	{
 #ifdef _WIN64
 		// ��� ����������, ��� ��������� � ��������� ������� �������� � ������ ������� ������
-		if (Utils::isRedux() || Utils::isArktika()) {
+		if (Utils::isReduxNextGen) {
+			// 40 53 57 41 54 41 55 41 56 48 81 EC ? ? ? ? 45 33 F6 0F 29 B4 24 - Redux NextGen
+			cflycam_player = (_cflycam_player)FindPatternInEXE(
+				"\x40\x53\x57\x41\x54\x41\x55\x41\x56\x48\x81\xEC\x00\x00\x00\x00\x45\x33\xF6\x0F\x29\xB4\x24",
+				"xxxxxxxxxxxx????xxxxxxx");
+		} else if (Utils::isRedux() || Utils::isArktika()) {
 			// 48 89 5C 24 ? 55 56 41 54 41 56 41 57 48 81 EC - Redux STEAM and Arktika
 			cflycam_player = (_cflycam_player)FindPatternInEXE(
 				"\x48\x89\x5C\x24\x00\x55\x56\x41\x54\x41\x56\x41\x57\x48\x81\xEC",
@@ -69,6 +74,13 @@ Fly::Fly()
 					"xxxxxxxxxxxxxxxxxxxxxxx????xxxxxxx");
 			}
 
+			if (cflycam_cflycam == NULL) {
+				// 48 8B C4 48 89 58 10 48 89 68 20 56 57 41 56 48 81 EC ? ? ? ? 81 61 18 FF FF FF 1F 48 8D B1 - Redux NextGen
+				cflycam_cflycam = (_cflycam_cflycam)FindPatternInEXE(
+					"\x48\x8B\xC4\x48\x89\x58\x10\x48\x89\x68\x20\x56\x57\x41\x56\x48\x81\xEC\x00\x00\x00\x00\x81\x61\x18\xFF\xFF\xFF\x1F\x48\x8D\xB1",
+					"xxxxxxxxxxxxxxxxxx????xxxxxxxxxx");
+			}
+
 			// 48 83 EC 28 48 8B 05 ? ? ? ? 48 85 C0 75 7F 8B 05 ? ? ? ? 48 89 5C 24 ? A8 01 75 1A 83 C8 01 89 05 ? ? ? ? E8 ? ? ? ? 48 8D 0D ? ? ? ? E8 - Redux STEAM
 			memory = (_memory)FindPatternInEXE(
 				"\x48\x83\xEC\x28\x48\x8B\x05\x00\x00\x00\x00\x48\x85\xC0\x75\x7F\x8B\x05\x00\x00\x00\x00\x48\x89\x5C\x24\x00\xA8\x01\x75\x1A\x83\xC8\x01\x89\x05\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8",
@@ -79,6 +91,13 @@ Fly::Fly()
 				memory = (_memory)FindPatternInEXE(
 					"\x48\x83\xEC\x28\x48\x8B\x05\x00\x00\x00\x00\x48\x85\xC0\x0F\x85\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x48\x8D\x2D\x00\x00\x00\x00\x48\x89\x74\x24\x00\x33\xF6\x48\x8B\x08\xBA\x00\x00\x00\x00\x48\x89\x7C\x24\x00\x8B\x04\x0A\x39\x05\x00\x00\x00\x00\x0F\x8F",
 					"xxxxxxx????xxxxx????xxxxx????xxxx?xxxx?xxx????xxxx?xxxxxx????xxxx?xxxxx????xx");
+			}
+
+			if (memory == NULL) {
+				// 48 83 EC 28 48 8B 05 ? ? ? ? 48 85 C0 0F 85 ? ? ? ? 65 48 8B 04 25 - Redux NextGen
+				memory = (_memory)FindPatternInEXE(
+					"\x48\x83\xEC\x28\x48\x8B\x05\x00\x00\x00\x00\x48\x85\xC0\x0F\x85\x00\x00\x00\x00\x65\x48\x8B\x04\x25",
+					"xxxxxxx????xxxxx????xxxxx");
 			}
 
 			// 48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 48 83 EC 20 49 8D 40 FF 41 B9 ? ? ? ? 33 F6 48 8B FA 48 8B E9 49 3B C1 77 14 - Redux STEAM
@@ -93,6 +112,13 @@ Fly::Fly()
 					"xxxx?xxxx?xxxxxxxxxxxxxxxx????xxxxxxxxxxx????xxxxxxxxxxxxxxx");
 			}
 
+			if (tlsf_memalign == NULL) {
+				// 48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC 20 48 8B DA 49 8D 40 FF 33 D2 48 8B F1 B9 ? ? ? ? 8B FA 48 3B C1 77 14 - Redux NextGen
+				tlsf_memalign = (_tlsf_memalign)FindPatternInEXE(
+					"\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x57\x48\x83\xEC\x20\x48\x8B\xDA\x49\x8D\x40\xFF\x33\xD2\x48\x8B\xF1\xB9\x00\x00\x00\x00\x8B\xFA\x48\x3B\xC1\x77\x14",
+					"xxxx?xxxx?xxxxxxxxxxxxxxxxxx????xxxxxxx");
+			}
+
 			// 48 89 5C 24 ? 48 89 54 24 ? 57 48 83 EC 60 48 8B 02 48 8B DA 48 8B 94 24 ? ? ? ? 0F 29 74 24 ? 0F 29 7C 24 ? 0F 28 F3 48 8B F9 48 8B CB 0F 28 FA FF 90 - Redux STEAM
 			camera_manager_play_track = (void*)FindPatternInEXE(
 				"\x48\x89\x5C\x24\x00\x48\x89\x54\x24\x00\x57\x48\x83\xEC\x60\x48\x8B\x02\x48\x8B\xDA\x48\x8B\x94\x24\x00\x00\x00\x00\x0F\x29\x74\x24\x00\x0F\x29\x7C\x24\x00\x0F\x28\xF3\x48\x8B\xF9\x48\x8B\xCB\x0F\x28\xFA\xFF\x90",
@@ -103,6 +129,27 @@ Fly::Fly()
 				camera_manager_play_track = (void*)FindPatternInEXE(
 					"\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x48\x89\x54\x24\x00\x57\x48\x83\xEC\x50\x48\x8B\x02\x48\x8B\xDA\x48\x8B\x94\x24\x00\x00\x00\x00\x48\x8B\xF9\x0F\x29\x74\x24\x00\x48\x8B\xCB\x0F\x29\x7C\x24\x00\x0F\x28\xF2\x0F\x28\xFB\xFF\x90",
 					"xxxx?xxxx?xxxx?xxxxxxxxxxxxxxx????xxxxxxx?xxxxxxx?xxxxxxxx");
+			}
+
+			if (camera_manager_play_track == NULL) {
+				// 48 89 5C 24 ? 48 89 54 24 ? 57 48 83 EC 50 48 8B 02 48 8B FA 48 8B 94 24 ? ? ? ? 48 8B D9 0F 29 74 24 ? 48 8B CF 0F 29 7C 24 ? 0F 28 F3 0F 28 FA FF 90 - Redux NextGen
+				camera_manager_play_track = (void*)FindPatternInEXE(
+					"\x48\x89\x5C\x24\x00\x48\x89\x54\x24\x00\x57\x48\x83\xEC\x50\x48\x8B\x02\x48\x8B\xFA\x48\x8B\x94\x24\x00\x00\x00\x00\x48\x8B\xD9\x0F\x29\x74\x24\x00\x48\x8B\xCF\x0F\x29\x7C\x24\x00\x0F\x28\xF3\x0F\x28\xFA\xFF\x90",
+					"xxxx?xxxx?xxxxxxxxxxxxxxx????xxxxxxx?xxxxxxx?xxxxxxxx");
+			}
+
+			if (Utils::isReduxNextGen) {
+				// cflycam update clamps pitch to +-pi/2. The new sincos returns exactly 0 for cos at the bottom,
+				// so normalizing the forward vector with y = 0 gives NaN and the camera position is lost.
+				// F3 0F 5D 1D ? ? ? ? F3 0F 5F 9C 24 C8 00 00 00 F3 0F 11 9F E0 00 00 00 - Redux NextGen
+				DWORD64 minss = FindPatternInEXE(
+					"\xF3\x0F\x5D\x1D\x00\x00\x00\x00\xF3\x0F\x5F\x9C\x24\xC8\x00\x00\x00\xF3\x0F\x11\x9F\xE0\x00\x00\x00",
+					"xxxx????xxxxxxxxxxxxxxxxx");
+
+				if (minss != NULL) {
+					float pitch_limit = 1.5707f;
+					ASMWrite((void*)Utils::GetAddrFromRelativeInstr(minss, 8, 4), (BYTE*)&pitch_limit, sizeof(pitch_limit));
+				}
 			}
 		} else if (Utils::isArktika()) {
 			// 48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 41 54 41 55 41 56 41 57 48 81 EC ? ? ? ? F3 0F 10 1D - Arktika

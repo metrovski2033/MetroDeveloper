@@ -76,7 +76,17 @@ RestoreCommands::RestoreCommands()
 			// 8B 05 ? ? ? ? C1 E8 03 - Redux
 			DWORD64 mov = FindPatternInEXE("\x8B\x05\x00\x00\x00\x00\xC1\xE8\x03", "xx????xxx");
 
-			igame_hud__flags = (unsigned int*)Utils::GetAddrFromRelativeInstr(mov, 6, 2);
+			if (mov != NULL) {
+				igame_hud__flags = (unsigned int*)Utils::GetAddrFromRelativeInstr(mov, 6, 2);
+			} else {
+				// 83 0D ? ? ? ? 03 8B 03 39 05 - Redux NextGen (or dword ptr [igame_hud::flags], 3)
+				mov = FindPatternInEXE(
+					"\x83\x0D\x00\x00\x00\x00\x03\x8B\x03\x39\x05",
+					"xx????xxxxx");
+
+				if (mov != NULL)
+					igame_hud__flags = (unsigned int*)Utils::GetAddrFromRelativeInstr(mov, 7, 2);
+			}
 		}
 #endif
 	}
