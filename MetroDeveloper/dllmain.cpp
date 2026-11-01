@@ -28,6 +28,7 @@
 #include "DisableFiltersCostMod.h"
 #include "DisableWeaponJam.h"
 #include "DisableWeaponDirt.h"
+#include "ConsoleMargin.h"
 
 #else
 
@@ -67,6 +68,7 @@ void InitMetroDeveloper()
 	DisableFiltersCostMod::DisableFiltersCostMod();
 	DisableWeaponJam::DisableWeaponJam();
 	DisableWeaponDirt::DisableWeaponDirt();
+	ConsoleMargin::ConsoleMargin();
 	//DisableStartupCheck::DisableStartupCheck();
 	MultiplayerFix::MultiplayerFix();
 

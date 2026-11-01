@@ -36,7 +36,7 @@
 
 # カスタム機能
 
-- カスタム機能はMetro Exodus Enhanced Editionでしか動作しない
+- カスタム機能はMetro Exodus Enhanced Editionでしか動作しない (下記の Redux 用の機能を除く)
 
 ## 雑多な機能追加/変更
 
@@ -50,6 +50,11 @@
     - デフォルトのキーが開発者のキーボードでは存在しなかったため
 - `civ_off` コマンドを追加。Civモード(武器非表示モード)を解除する。この状態で`civ_on`実行で再度Civモードになる。
   - `civ_on`は、`civ_off` 実行状態の解除以外では利用不可
+
+## Redux の開発者コンソールの表示位置
+
+- 入力した文字が画面の下で見切れる場合、MetroDeveloper.ini の `[other]` セクションの `console_bottom_margin` で入力行を上げられる
+  - 値はピクセル数。0 で無効 (既定)
 
 ## 武器付与コマンド wpn_give
 
