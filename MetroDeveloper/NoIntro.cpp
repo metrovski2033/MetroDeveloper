@@ -36,6 +36,13 @@ NoIntro::NoIntro()
 				// 73 15 0F B7 C0 48 8D 8D - Redux EGS
 				IntroAddress = FindPatternInEXE("\x73\x15\x0F\xB7\xC0\x48\x8D\x8D", "xxxxxxxx");
 			}
+
+			if (IntroAddress == NULL) {
+				// 73 12 48 8D 8D ? ? ? ? 49 89 0C C6 - Redux NextGen
+				IntroAddress = FindPatternInEXE(
+					"\x73\x12\x48\x8D\x8D\x00\x00\x00\x00\x49\x89\x0C\xC6",
+					"xxxxx????xxxx");
+			}
 		} else if (Utils::isExodus()) {
 			// 73 ? 0F B7 C0 48 8D 8D - Exodus
 			IntroAddress = FindPatternInEXE("\x73\x00\x0F\xB7\xC0\x48\x8D\x8D", "x?xxxxxx");

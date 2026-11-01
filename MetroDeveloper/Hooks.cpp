@@ -193,14 +193,21 @@ tyda:
 	DWORD64 clevel_r_on_key_press_Address = NULL;
 
 	if (Utils::isRedux()) {
-		if (!Utils::isReduxEGS) {
+		if (!Utils::isReduxEGS && !Utils::isReduxNextGen) {
 			g_multiplayer_fix = Utils::GetBool(OTHER, "multiplayer_fix", false);
 		}
 
-		// 40 53 55 56 57 48 83 EC ? 48 8B F1 - Redux STEAM
-		clevel_r_on_key_press_Address = FindPatternInEXE("\x40\x53\x55\x56\x57\x48\x83\xEC\x00\x48\x8B\xF1", "xxxxxxxx?xxx");
+		if (Utils::isReduxNextGen) {
+			// 40 53 55 56 57 48 83 EC 58 48 8B F9 41 8B E9 48 8B 0D - Redux NextGen
+			clevel_r_on_key_press_Address = FindPatternInEXE(
+				"\x40\x53\x55\x56\x57\x48\x83\xEC\x58\x48\x8B\xF9\x41\x8B\xE9\x48\x8B\x0D",
+				"xxxxxxxxxxxxxxxxxx");
+		} else {
+			// 40 53 55 56 57 48 83 EC ? 48 8B F1 - Redux STEAM
+			clevel_r_on_key_press_Address = FindPatternInEXE("\x40\x53\x55\x56\x57\x48\x83\xEC\x00\x48\x8B\xF1", "xxxxxxxx?xxx");
+		}
 
-		if (clevel_r_on_key_press_Address == NULL) {
+		if (clevel_r_on_key_press_Address == NULL && !Utils::isReduxNextGen) {
 			// 40 55 56 57 41 57 48 83 EC 58 - Redux EGS
 			clevel_r_on_key_press_Address = FindPatternInEXE("\x40\x55\x56\x57\x41\x57\x48\x83\xEC\x58", "xxxxxxxxxx");
 		}
@@ -239,7 +246,12 @@ tyda:
 				"\x48\x89\x5C\x24\x00\x57\x48\x83\xEC\x20\x8B\x05\x00\x00\x00\x00\x48\x8D\x1D\x00\x00\x00\x00\x48\x8D\x3D\x00\x00\x00\x00\xA8\x01\x75\x60",
 				"xxxx?xxxxxxx????xxx????xxx????xxxx");
 
-			if (cmd_register_commands_Address == NULL) {
+			if (Utils::isReduxNextGen) {
+				// 40 53 48 83 EC 20 65 48 8B 04 25 ? ? ? ? 8B 0D ? ? ? ? BA ? ? ? ? 48 8B 1C C8 48 03 DA 8B 03 39 05 ? ? ? ? 0F 8F C0 01 00 00 - Redux NextGen (first of two registration functions)
+				cmd_register_commands_Address = FindPatternInEXE(
+					"\x40\x53\x48\x83\xEC\x20\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x8B\x0D\x00\x00\x00\x00\xBA\x00\x00\x00\x00\x48\x8B\x1C\xC8\x48\x03\xDA\x8B\x03\x39\x05\x00\x00\x00\x00\x0F\x8F\xC0\x01\x00\x00",
+					"xxxxxxxxxxx????xx????x????xxxxxxxxxxx????xxxxxx");
+			} else if (cmd_register_commands_Address == NULL) {
 				// 40 53 48 83 EC 20 65 48 8B 04 25 ? ? ? ? 8B 0D ? ? ? ? BA ? ? ? ? 48 8B 1C C8 48 03 DA 8B 03 39 05 - Redux EGS
 				cmd_register_commands_Address = FindPatternInEXE(
 					"\x40\x53\x48\x83\xEC\x20\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x8B\x0D\x00\x00\x00\x00\xBA\x00\x00\x00\x00\x48\x8B\x1C\xC8\x48\x03\xDA\x8B\x03\x39\x05",
@@ -280,7 +292,27 @@ tyda:
 				"\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x56\x57\x41\x54\x41\x56\x41\x57\x48\x83\xEC\x00\x45\x33\xE4\x45\x8B\xF9",
 				"xxxx?xxxx?xxxxxxxxxxx?xxxxxx");
 
-			if (vfs_ropen_package_Address != NULL) {
+			if (Utils::isReduxNextGen) {
+				// 48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 55 41 56 41 57 48 83 EC 30 45 33 ED 41 8B E9 49 8B F0 48 8B DA 4C 8B F1 44 39 6A 0C 0F 84 - Redux NextGen
+				vfs_ropen_package_Address = FindPatternInEXE(
+					"\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x56\x57\x41\x55\x41\x56\x41\x57\x48\x83\xEC\x30\x45\x33\xED\x41\x8B\xE9\x49\x8B\xF0\x48\x8B\xDA\x4C\x8B\xF1\x44\x39\x6A\x0C\x0F\x84",
+					"xxxx?xxxx?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+
+				// 48 89 5C 24 ? 48 89 74 24 ? 41 56 48 83 EC ? 83 79 - Redux STEAM & NextGen
+				vfs_rbuffered_package_Address = FindPatternInEXE("\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x41\x56\x48\x83\xEC\x00\x83\x79", "xxxx?xxxx?xxxxx?xx");
+
+				// 48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 41 56 41 57 48 83 EC 20 0F B7 A9 ? ? ? ? 45 33 FF 48 8B F2 4C 8B F1 - Redux NextGen
+				vfs_package_registry_level_downloaded_Address = FindPatternInEXE(
+					"\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x48\x89\x74\x24\x00\x57\x41\x56\x41\x57\x48\x83\xEC\x20\x0F\xB7\xA9\x00\x00\x00\x00\x45\x33\xFF\x48\x8B\xF2\x4C\x8B\xF1",
+					"xxxx?xxxx?xxxx?xxxxxxxxxxxx????xxxxxxxxx");
+
+				// 48 8b c4 48 89 58 ? 48 89 70 ? 48 89 78 ? 48 89 48 ? 55 48 8d a8 ? ? ? ? b8 - Redux STEAM & NextGen
+				asset_manager_load_all_internal_Address = FindPatternInEXE(
+					"\x48\x8b\xc4\x48\x89\x58\x00\x48\x89\x70\x00\x48\x89\x78\x00\x48\x89\x48\x00\x55\x48\x8d\xa8\x00\x00\x00\x00\xb8",
+					"xxxxxx?xxx?xxx?xxx?xxxx????x");
+
+				mov_g_texture_manager = asset_manager_load_all_internal_Address + 0x28; // Redux NextGen
+			} else if (vfs_ropen_package_Address != NULL) {
 				// 48 89 5C 24 ? 48 89 74 24 ? 41 56 48 83 EC ? 83 79 - Redux STEAM
 				vfs_rbuffered_package_Address = FindPatternInEXE("\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x41\x56\x48\x83\xEC\x00\x83\x79", "xxxx?xxxx?xxxxx?xx");
 
@@ -427,6 +459,13 @@ tyda:
 				// 48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 56 B8 ? ? ? ? E8 - Redux EGS
 				slog_Address = FindPatternInEXE("\x48\x89\x5C\x24\x00\x48\x89\x6C\x24\x00\x56\x57\x41\x56\xB8\x00\x00\x00\x00\xE8", "xxxx?xxxx?xxxxx????x");
 			}
+
+			if (slog_Address == NULL) {
+				// 40 53 B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 0F B6 01 45 33 C0 48 8B D9 - Redux NextGen
+				slog_Address = FindPatternInEXE(
+					"\x40\x53\xB8\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x2B\xE0\x0F\xB6\x01\x45\x33\xC0\x48\x8B\xD9",
+					"xxx????x????xxxxxxxxxxxx");
+			}
 		} else if (Utils::isArktika()) {
 			// 48 89 5C 24 ? 57 B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 48 8B D9 E8 ? ? ? ? 33 D2 BF ? ? ? ? 38 13 74 5C 33 C0 0F B6 0B 80 F9 0A 75 41 C6 44 04 ? ? 80 7C 24 ? ? 75 07 66 C7 44 24 - Arktika
 			slog_Address = FindPatternInEXE(
@@ -504,7 +543,7 @@ tyda:
 		}
 	}
 
-	if (Utils::isRedux() && !Utils::isReduxEGS && Utils::GetBool(OTHER, "multiplayer_fix", false)) {
+	if (Utils::isRedux() && !Utils::isReduxEGS && !Utils::isReduxNextGen && Utils::GetBool(OTHER, "multiplayer_fix", false)) {
 		// 48 8B C4 55 41 54 41 57 48 8D A8 ? ? ? ? 48 81 EC ? ? ? ? 45 33 E4 4C 8B F9 66 44 3B A1 ? ? ? ? 0F 84 ? ? ? ? 48 89 58 E0 4C 89 68 C8 49 83 CD FF 66 66 0F 1F 84 00 - Redux STEAM
 		void* net_core_update_input_Address = (void*)FindPatternInEXE(
 			"\x48\x8B\xC4\x55\x41\x54\x41\x57\x48\x8D\xA8\x00\x00\x00\x00\x48\x81\xEC\x00\x00\x00\x00\x45\x33\xE4\x4C\x8B\xF9\x66\x44\x3B\xA1\x00\x00\x00\x00\x0F\x84\x00\x00\x00\x00\x48\x89\x58\xE0\x4C\x89\x68\xC8\x49\x83\xCD\xFF\x66\x66\x0F\x1F\x84\x00",

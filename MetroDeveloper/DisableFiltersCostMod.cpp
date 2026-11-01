@@ -15,6 +15,13 @@ DisableFiltersCostMod::DisableFiltersCostMod()
 				mulss = (LPVOID)FindPatternInEXE("\xf3\x0f\x59\xf0\x45\x0f\xb7\x87", "xxxxxxxx");
 			}
 
+			if (mulss == NULL) {
+				// F3 0F 59 F0 45 0F B7 8F - Redux NextGen
+				mulss = (LPVOID)FindPatternInEXE(
+					"\xF3\x0F\x59\xF0\x45\x0F\xB7\x8F",
+					"xxxxxxxx");
+			}
+
 			BYTE NOP[] = { 0x90, 0x90, 0x90, 0x90 };
 			ASMWrite(mulss, NOP, sizeof(NOP));
 		}

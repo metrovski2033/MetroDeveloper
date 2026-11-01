@@ -62,6 +62,7 @@ public:
 	static bool isExodus();
 
 	static bool isReduxEGS;
+	static bool isReduxNextGen; // Next-Gen Update (2026-10): same code on STEAM and EGS
 	static bool isExodusPatched;
 	static bool isExodusEE;
 
