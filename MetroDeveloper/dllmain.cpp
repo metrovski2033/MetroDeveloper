@@ -18,6 +18,7 @@
 #include "LogFile.h"
 #include "DisableStartupCheck.h"
 #include "MultiplayerFix.h"
+#include "ReduxImeFix.h"
 
 #ifdef _WIN64
 #include "MenuHack.h"
@@ -49,6 +50,8 @@ void InitMetroDeveloper()
 	if (Utils::GetBool("other", "beep", true)) {
 		Beep(1000, 200);
 	}
+
+	ReduxImeFix::Install();
 
 	BadQuitReset::BadQuitReset();
 	NoIntro::NoIntro();
