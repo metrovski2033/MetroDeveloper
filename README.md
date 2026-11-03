@@ -56,6 +56,11 @@
 - 入力した文字が画面の下で見切れる場合、MetroDeveloper.ini の `[other]` セクションの `console_bottom_margin` で入力行を上げられる
   - 値はピクセル数。0 で無効 (既定)
 
+## Redux の日本語 IME 入力遅延対策
+
+- `feature/myCustom` では、Next-Gen Update 後の Metro 2033 Redux / Metro Last Light Redux がキー情報を取得する際に、日本語と英語のキーボードレイアウトを繰り返し切り替える処理を抑制します。
+- この対策は常に有効です。`MetroDeveloper.ini` の設定は不要です。
+
 ## 武器付与コマンド wpn_give
 
 ### 概要
